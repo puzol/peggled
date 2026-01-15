@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Peggle Clone - Three.js</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            background: #1a1a2e;
+        }
+
+        #game-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #1a1a2e;
+        }
+
+        #game-canvas-wrapper {
+            position: relative;
+            width: min(100vw, calc(100vh * 4 / 3));
+            height: min(100vh, calc(100vw * 3 / 4));
+            aspect-ratio: 4 / 3;
+            background: #2a2a3e;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+
+        #game-canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        #ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 100;
+            padding: 20px;
+        }
+
+        #ui-overlay > * {
+            pointer-events: auto;
+        }
+
+        #score {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        #free-ball-meter-label {
+            position: absolute;
+            top: 20px;
+            left: 200px;
+            color: white;
+            font-size: 14px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        #free-ball-meter {
+            position: absolute;
+            top: 45px;
+            left: 200px;
+            width: 200px;
+            height: 20px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 2px solid white;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        #goal {
+            position: absolute;
+            top: 50px;
+            left: 20px;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        #balls-remaining {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        #power-turns {
+            position: absolute;
+            top: 50px;
+            right: 20px;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        #seed-display {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #copy-seed-button {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid white;
+            border-radius: 5px;
+            padding: 5px 10px;
+            cursor: pointer;
+            font-size: 14px;
+            color: white;
+            transition: all 0.2s ease;
+        }
+
+        #copy-seed-button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.05);
+        }
+
+        #seed-input-container {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #seed-input-label {
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        #seed-input {
+            padding: 10px;
+            font-size: 16px;
+            border: 2px solid white;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            width: 200px;
+            text-align: center;
+        }
+
+        #seed-input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        #free-ball-meter-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4ecdc4, #44a08d);
+            width: 0%;
+            transition: width 0.1s ease;
+        }
+
+        #multiplier-tracker-label {
+            position: absolute;
+            top: 20px;
+            left: 420px;
+            color: white;
+            font-size: 14px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        #multiplier-tracker {
+            position: absolute;
+            top: 45px;
+            left: 420px;
+            width: 200px;
+            height: 20px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 2px solid white;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        #multiplier-tracker-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff6b6b, #ee5a6f, #c44569, #8b2f5e);
+            width: 0%;
+            transition: width 0.1s ease;
+        }
+
+        #multiplier-value {
+            position: absolute;
+            top: 70px;
+            left: 420px;
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        #play-again-button {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 15px 30px;
+            font-size: 24px;
+            font-weight: bold;
+            color: white;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: 3px solid white;
+            border-radius: 10px;
+            cursor: pointer;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            display: none;
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+
+        #play-again-button:hover {
+            transform: translate(-50%, -50%) scale(1.05);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        #play-again-button:active {
+            transform: translate(-50%, -50%) scale(0.98);
+        }
+
+        #character-selector {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+
+        #character-selector.hidden {
+            display: none;
+        }
+
+        #character-selector-content {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px;
+            border-radius: 20px;
+            border: 3px solid white;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+            text-align: center;
+            max-width: 600px;
+        }
+
+        #character-selector h2 {
+            color: white;
+            font-size: 32px;
+            margin-bottom: 30px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .character-option {
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid white;
+            border-radius: 15px;
+            padding: 20px;
+            margin: 15px 0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .character-option:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .character-option.selected {
+            background: rgba(255, 255, 255, 0.4);
+            border-color: #ffd700;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+        }
+
+        .character-name {
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .character-power {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 16px;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+        }
+
+        #start-game-button {
+            margin-top: 30px;
+            padding: 15px 40px;
+            font-size: 20px;
+            font-weight: bold;
+            color: white;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid white;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        #start-game-button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.05);
+        }
+
+        #start-game-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        #roulette-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 3000;
+        }
+
+        #roulette-overlay.active {
+            display: flex;
+        }
+
+        #roulette-content {
+            background: linear-gradient(135deg, #8b0000 0%, #dc143c 100%);
+            padding: 40px;
+            border-radius: 20px;
+            border: 3px solid white;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+            text-align: center;
+            min-width: 400px;
+        }
+
+        #roulette-title {
+            color: white;
+            font-size: 28px;
+            margin-bottom: 30px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .roulette-option {
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid white;
+            border-radius: 15px;
+            padding: 20px;
+            margin: 10px 0;
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            transition: all 0.1s ease;
+        }
+
+        .roulette-option.highlighted {
+            background: rgba(255, 255, 255, 0.5);
+            border-color: #ffd700;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+<body>
+    <div id="character-selector">
+        <div id="character-selector-content">
+            <h2>Select Your Character</h2>
+            <div id="character-options"></div>
+            <div id="seed-input-container">
+                <label id="seed-input-label" for="seed-input">Enter Seed (optional):</label>
+                <input type="number" id="seed-input" placeholder="Leave empty for random">
+            </div>
+            <button id="start-game-button" disabled>Start Game</button>
+        </div>
+    </div>
+
+    <div id="roulette-overlay">
+        <div id="roulette-content">
+            <div id="roulette-title">🎰 Selecting Power...</div>
+            <div class="roulette-option" id="roulette-spread">Spread Shot</div>
+            <div class="roulette-option" id="roulette-rapid">Rapid Shot</div>
+            <div class="roulette-option" id="roulette-explosion">Explosion</div>
+        </div>
+    </div>
+
+    <div id="game-container">
+        <div id="game-canvas-wrapper">
+            <canvas id="game-canvas"></canvas>
+            <div id="ui-overlay">
+                <div id="score">Score: 0</div>
+                <div id="goal">Goal: 0/25</div>
+                <div id="balls-remaining">Balls: 10</div>
+                <div id="power-turns">Power: 0</div>
+                <div id="seed-display">
+                    <span>Seed: <span id="seed-value">-</span></span>
+                    <button id="copy-seed-button" title="Copy seed to clipboard">📋</button>
+                </div>
+                <div id="free-ball-meter-label">Free Ball</div>
+                <div id="free-ball-meter">
+                    <div id="free-ball-meter-fill"></div>
+                </div>
+                <div id="multiplier-tracker-label">Multiplier</div>
+                <div id="multiplier-tracker">
+                    <div id="multiplier-tracker-fill"></div>
+                </div>
+                <div id="multiplier-value">1.0x</div>
+                <button id="play-again-button">Play Again</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+</body>
+</html>
+

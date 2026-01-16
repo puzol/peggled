@@ -262,13 +262,24 @@ export class Game {
         this.updateSeedDisplay();
         
         // Hide character selector
+        this.hideCharacterSelector();
+        
+        // Initialize game components
+        this.init();
+    }
+    
+    showCharacterSelector() {
+        const characterSelector = document.querySelector('#character-selector');
+        if (characterSelector) {
+            characterSelector.style.display = 'flex';
+        }
+    }
+    
+    hideCharacterSelector() {
         const characterSelector = document.querySelector('#character-selector');
         if (characterSelector) {
             characterSelector.style.display = 'none';
         }
-        
-        // Initialize game components
-        this.init();
     }
 
     async init() {
@@ -1373,6 +1384,32 @@ export class Game {
         this.hidePlayAgainButton();
         this.hidePlayAgainNewSeedButton();
         
+        // Show character selector again for new character selection
+        this.showCharacterSelector();
+        
+        // Clear selected character - user must choose again
+        this.selectedCharacter = null;
+        
+        // Reset character selector UI
+        const optionsContainer = document.querySelector('#character-options');
+        if (optionsContainer) {
+            document.querySelectorAll('.character-option').forEach(opt => {
+                opt.classList.remove('selected');
+            });
+        }
+        
+        // Disable start button until character is selected
+        const startButton = document.querySelector('#start-game-button');
+        if (startButton) {
+            startButton.disabled = true;
+        }
+        
+        // Clear seed input
+        const seedInput = this.seedInput || document.querySelector('#seed-input');
+        if (seedInput) {
+            seedInput.value = '';
+        }
+        
         // Clear roulette queue and power queue on restart
         if (this.rouletteQueue) {
             this.rouletteQueue = [];
@@ -1434,14 +1471,40 @@ export class Game {
         this.updateFreeBallMeter();
         this.updateOrangePegMultiplier();
         
-        // Reload level
-        this.loadLevel('/levels/level1.json');
+        // Don't load level here - user must select character and click "Start Game" first
+        // Level will be loaded when startGame() is called
     }
     
     restartGameWithNewSeed() {
         // Hide play again buttons
         this.hidePlayAgainButton();
         this.hidePlayAgainNewSeedButton();
+        
+        // Show character selector again for new character selection
+        this.showCharacterSelector();
+        
+        // Clear selected character - user must choose again
+        this.selectedCharacter = null;
+        
+        // Reset character selector UI
+        const optionsContainer = document.querySelector('#character-options');
+        if (optionsContainer) {
+            document.querySelectorAll('.character-option').forEach(opt => {
+                opt.classList.remove('selected');
+            });
+        }
+        
+        // Disable start button until character is selected
+        const startButton = document.querySelector('#start-game-button');
+        if (startButton) {
+            startButton.disabled = true;
+        }
+        
+        // Clear seed input
+        const seedInput = this.seedInput || document.querySelector('#seed-input');
+        if (seedInput) {
+            seedInput.value = '';
+        }
         
         // Clear roulette queue and power queue on restart
         if (this.rouletteQueue) {
@@ -1453,17 +1516,7 @@ export class Game {
         this.selectedPower = null;
         this.updatePowerDisplay();
         
-        // Generate new seed
-        const newSeed = Date.now();
-        
-        // Initialize RNG with new seed
-        this.currentSeed = newSeed;
-        this.rng = new SeededRNG(newSeed);
-        
-        // Update seed display
-        this.updateSeedDisplay();
-        
-        // Reset game state
+        // Reset game state (seed will be generated when user starts new game)
         this.ballsRemaining = 10;
         this.score = 0;
         this.goalProgress = 0;
@@ -1509,8 +1562,8 @@ export class Game {
         this.updateFreeBallMeter();
         this.updateOrangePegMultiplier();
         
-        // Reload level (will use new seed for peg generation)
-        this.loadLevel('/levels/level1.json');
+        // Don't load level here - user must select character and click "Start Game" first
+        // Level will be loaded when startGame() is called (with new seed)
     }
 
     updateOrangePegMultiplier() {

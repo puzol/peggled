@@ -11,6 +11,7 @@ import { LevelLoader } from './utils/LevelLoader.js';
 import { LuckyClover } from './utils/LuckyClover.js';
 import { EmojiEffect } from './utils/EmojiEffect.js';
 import { SeededRNG } from './utils/SeededRNG.js';
+import { AudioManager } from './utils/AudioManager.js';
 import { PetarPower } from './characters/PetarPower.js';
 import { JohnPower } from './characters/JohnPower.js';
 import { SpikeyPower } from './characters/SpikeyPower.js';
@@ -292,6 +293,21 @@ export class Game {
         
         // Initialize emoji effects (needs scene, camera, renderer)
         this.emojiEffect = new EmojiEffect(this.scene, this.camera, this.renderer);
+        
+        // Initialize audio manager
+        this.audioManager = new AudioManager();
+        
+        // Preload sounds
+        await this.audioManager.loadSound('pegHit', `${import.meta.env.BASE_URL}sounds/pegHit`, 'sfx');
+        
+        // Resume audio context on first user interaction (browser autoplay policy)
+        const resumeAudio = () => {
+            this.audioManager.resumeContext();
+            document.removeEventListener('click', resumeAudio);
+            document.removeEventListener('keydown', resumeAudio);
+        };
+        document.addEventListener('click', resumeAudio, { once: true });
+        document.addEventListener('keydown', resumeAudio, { once: true });
         
         // Load level
         // Use import.meta.env.BASE_URL to handle base path in production (GitHub Pages)
@@ -867,6 +883,9 @@ export class Game {
         // Process purple pegs FIRST to activate multiplier before other pegs
         purplePegs.forEach(peg => {
             peg.onHit();
+            if (this.audioManager) {
+                this.audioManager.playPegHit();
+            }
             explosionHitPegs.push(peg); // Track for removal
             
             // Add score for purple peg (before multiplier is activated)
@@ -900,6 +919,9 @@ export class Game {
         // Now process all other pegs (they will benefit from the purple peg multiplier if it was activated)
         otherPegs.forEach(peg => {
             peg.onHit();
+            if (this.audioManager) {
+                this.audioManager.playPegHit();
+            }
             explosionHitPegs.push(peg); // Track for removal
             
             // Add score (now with purple peg multiplier if purple peg was hit)
@@ -1916,6 +1938,11 @@ export class Game {
         // Call peg.onHit() to mark it as hit
         peg.onHit();
         
+        // Play peg hit sound
+        if (this.audioManager) {
+            this.audioManager.playPegHit();
+        }
+        
         // Process scoring and effects (similar to ball-peg collision)
         // Check for green peg (power activation)
         if (peg.isGreen) {
@@ -2028,6 +2055,11 @@ export class Game {
             if (isNewHit) {
                 try {
                     peg.onHit();
+                    
+                    // Play peg hit sound
+                    if (this.audioManager) {
+                        this.audioManager.playPegHit();
+                    }
                 } catch (error) {
                     // ERROR in peg.onHit()
                 }

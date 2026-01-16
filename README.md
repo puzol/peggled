@@ -49,10 +49,42 @@ Levels are stored as JSON files in the `levels/` directory. Each level file cont
 
 ## Setup
 
+### Local Development
+
 ```bash
 npm install
 npm run dev
 ```
+
+The game will be available at `http://localhost:3000` (or the IP address shown in the terminal for network access).
+
+### Build for Production
+
+```bash
+npm run build
+```
+
+This creates a `dist/` folder with all static files ready for deployment.
+
+### Deploy to GitHub Pages
+
+The project is set up for automatic deployment to GitHub Pages using GitHub Actions.
+
+1. **Enable GitHub Pages in your repository**:
+   - Go to your repository on GitHub
+   - Settings → Pages
+   - Source: GitHub Actions
+   - Save
+
+2. **Push to trigger deployment**:
+   - The workflow (`.github/workflows/deploy.yml`) will automatically build and deploy when you push to the `main` branch
+   - After deployment, your game will be available at `https://[username].github.io/peggled/`
+
+3. **Base path configuration**:
+   - If your repository name is different, update `base: '/peggled/'` in `vite.config.js` to match your repo name
+   - For a user site (`[username].github.io`), change `base: '/'`
+
+**Note**: The game is fully static after building - no server needed! Vite bundles all dependencies (Three.js, Cannon.js) into static files that work in any browser.
 
 ## Architecture Decision
 

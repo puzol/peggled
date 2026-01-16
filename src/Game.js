@@ -283,7 +283,8 @@ export class Game {
         this.emojiEffect = new EmojiEffect(this.scene, this.camera, this.renderer);
         
         // Load level
-        await this.loadLevel('/levels/level1.json');
+        // Use import.meta.env.BASE_URL to handle base path in production (GitHub Pages)
+        await this.loadLevel(`${import.meta.env.BASE_URL}levels/level1.json`);
         
         // Initialize UI
         this.updateBallsRemainingUI();

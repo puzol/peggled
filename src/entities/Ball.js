@@ -51,6 +51,11 @@ export class Ball {
         // This helps prevent the ball from passing through pegs
         this.body.collisionResponse = true;
         
+        // Enable CCD (Continuous Collision Detection) for fast-moving objects
+        // This helps detect collisions even when the ball moves fast
+        this.body.allowSleep = false; // Keep body active
+        this.body.updateMassProperties();
+        
         this.body.position.set(position.x, position.y, position.z);
         
         // Apply initial velocity if provided

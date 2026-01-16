@@ -52,20 +52,42 @@ export class Peg {
         if (!this.hit) {
             this.hit = true;
             // Change color to indicate hit
+            let newColor;
             if (this.isOrange) {
                 // Orange pegs turn to a lighter shade of orange when hit
-                this.mesh.material.color.setHex(0xffb347); // Lighter orange
+                newColor = 0xffb347; // Lighter orange
             } else if (this.isGreen) {
                 // Green pegs turn to a lighter shade of green when hit
-                this.mesh.material.color.setHex(0x90ee90); // Lighter green
+                newColor = 0x90ee90; // Lighter green
             } else if (this.isPurple) {
                 // Purple pegs turn to a lighter shade of purple when hit
-                this.mesh.material.color.setHex(0x9370db); // Medium purple (darker when hit)
+                newColor = 0x9370db; // Medium purple (darker when hit)
             } else {
                 // Blue pegs turn to a lighter shade of blue when hit
-                this.mesh.material.color.setHex(0x87ceeb); // Light blue
+                newColor = 0x87ceeb; // Light blue
             }
+            
+            this.mesh.material.color.setHex(newColor);
+        } else {
         }
+    }
+
+    // Reset peg to unhit state (for testing)
+    reset() {
+        this.hit = false;
+        // Restore original color based on peg type
+        let originalColor;
+        if (this.isOrange) {
+            originalColor = 0xff8c00; // Orange
+        } else if (this.isGreen) {
+            originalColor = 0x32cd32; // Green
+        } else if (this.isPurple) {
+            originalColor = 0x8b00ff; // Purple
+        } else {
+            originalColor = this.color; // Blue (use stored color)
+        }
+        this.mesh.material.color.setHex(originalColor);
+        // Peg reset
     }
 
     remove() {

@@ -122,12 +122,14 @@ export class PhysicsWorld {
     update(deltaTime) {
         // Step the physics simulation with smaller fixed timestep for better collision detection
         // Smaller timestep = more frequent updates = less chance of tunneling through objects
-        // 1/120 = 0.00833 seconds (120 Hz physics update rate)
-        const fixedTimeStep = 1 / 120;
+        // 1/180 = 0.00555 seconds (180 Hz physics update rate) - increased for better collision detection
+        const fixedTimeStep = 1 / 180;
         // Increase maxSubSteps to allow more substeps per frame for fast-moving objects
         // This prevents the ball from skipping through pegs when moving quickly
-        const maxSubSteps = 20;
-        this.world.step(fixedTimeStep, deltaTime, maxSubSteps);
+        const maxSubSteps = 30;
+        // Round deltaTime to 3 decimals for determinism before passing to physics
+        const roundedDeltaTime = Math.round(deltaTime * 1000) / 1000;
+        this.world.step(fixedTimeStep, roundedDeltaTime, maxSubSteps);
     }
 
     addBody(body) {

@@ -1,0 +1,11 @@
+{
+  "name": "Test Level - Single Peg",
+  "pegs": [
+    {
+      "x": 0.05,
+      "y": 0,
+      "color": "#4a90e2"
+    }
+  ]
+}
+

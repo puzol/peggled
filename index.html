@@ -119,10 +119,40 @@
             text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
         }
 
+        #current-power-display {
+            position: absolute;
+            top: 72px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+            background: rgba(0, 0, 0, 0.6);
+            padding: 8px 16px;
+            border-radius: 8px;
+            pointer-events: none;
+        }
+
+        #next-power-display {
+            position: absolute;
+            top: 72px;
+            left: 50%;
+            transform: translate(calc(-50% + 150px), 0);
+            color: #aaa;
+            font-size: 16px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+            background: transparent;
+            padding: 6px 12px;
+            border-radius: 6px;
+            pointer-events: none;
+        }
+
         #seed-display {
             position: absolute;
             top: 20px;
-            left: 50%;
+            right: 60px;
             transform: translateX(-50%);
             color: white;
             font-size: 18px;
@@ -251,6 +281,35 @@
         }
 
         #play-again-button:active {
+            transform: translate(-50%, -50%) scale(0.98);
+        }
+
+        #play-again-new-seed-button {
+            position: absolute;
+            top: calc(50% + 70px);
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 15px 30px;
+            font-size: 24px;
+            font-weight: bold;
+            color: white;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            border: 3px solid white;
+            border-radius: 10px;
+            cursor: pointer;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            display: none;
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+
+        #play-again-new-seed-button:hover {
+            transform: translate(-50%, -50%) scale(1.05);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        #play-again-new-seed-button:active {
             transform: translate(-50%, -50%) scale(0.98);
         }
 
@@ -445,7 +504,10 @@
                     <div id="multiplier-tracker-fill"></div>
                 </div>
                 <div id="multiplier-value">1.0x</div>
+                <div id="current-power-display"></div>
+                <div id="next-power-display"></div>
                 <button id="play-again-button">Play Again</button>
+                <button id="play-again-new-seed-button">Play Again with New Seed</button>
             </div>
         </div>
     </div>

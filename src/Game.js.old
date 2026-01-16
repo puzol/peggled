@@ -1,19 +1,14 @@
 import * as THREE from 'three';
-import * as CANNON from 'cannon-es';
 import { PhysicsWorld } from './physics/PhysicsWorld.js';
 import { Ball } from './entities/Ball.js';
 import { Peg } from './entities/Peg.js';
 import { Wall } from './entities/Wall.js';
 import { Bucket } from './entities/Bucket.js';
 import { Bomb } from './entities/Bomb.js';
-import { Spike } from './entities/Spike.js';
 import { LevelLoader } from './utils/LevelLoader.js';
 import { LuckyClover } from './utils/LuckyClover.js';
 import { EmojiEffect } from './utils/EmojiEffect.js';
 import { SeededRNG } from './utils/SeededRNG.js';
-import { PetarPower } from './characters/PetarPower.js';
-import { JohnPower } from './characters/JohnPower.js';
-import { SpikeyPower } from './characters/SpikeyPower.js';
 
 // Main game controller
 export class Game {
@@ -60,23 +55,15 @@ export class Game {
         // Ball shot speed constant (reduced by 15%, 30%, 10%, and 30%)
         this.ballShotSpeed = 10;
         
-        // FPS cap for determinism (target frame rate)
-        this.targetFPS = 60; // Can be increased to 120 if needed for hitreg
-        this.targetFrameTime = 1000 / this.targetFPS; // milliseconds per frame
-        this.lastFrameTime = 0; // Track last frame time for FPS capping
-        
         // UI elements
         this.ballsRemainingElement = container.querySelector('#balls-remaining');
         this.scoreElement = container.querySelector('#score');
         this.goalElement = container.querySelector('#goal');
         this.powerTurnsElement = container.querySelector('#power-turns');
-        this.currentPowerDisplay = container.querySelector('#current-power-display');
-        this.nextPowerDisplay = container.querySelector('#next-power-display');
         this.freeBallMeterFill = container.querySelector('#free-ball-meter-fill');
         this.multiplierTrackerFill = container.querySelector('#multiplier-tracker-fill');
         this.multiplierValue = container.querySelector('#multiplier-value');
         this.playAgainButton = container.querySelector('#play-again-button');
-        this.playAgainNewSeedButton = container.querySelector('#play-again-new-seed-button');
         this.seedValueElement = container.querySelector('#seed-value');
         this.copySeedButton = container.querySelector('#copy-seed-button');
         // Seed input is in character selector, not game container
@@ -86,13 +73,6 @@ export class Game {
         if (this.playAgainButton) {
             this.playAgainButton.addEventListener('click', () => {
                 this.restartGame();
-            });
-        }
-        
-        // Set up play again with new seed button click handler
-        if (this.playAgainNewSeedButton) {
-            this.playAgainNewSeedButton.addEventListener('click', () => {
-                this.restartGameWithNewSeed();
             });
         }
         
@@ -115,34 +95,16 @@ export class Game {
                 name: 'John, the Gunner',
                 power: 'Roulette Power',
                 powerDescription: 'Green pegs trigger a roulette with 3 random powers: Spread Shot, Rapid Shot, or Explosion'
-            },
-            {
-                id: 'spikey',
-                name: 'Spikey the PufferFish',
-                power: 'Spike Power',
-                powerDescription: 'On green peg hit, spawn 8 spikes around the peg. Powers up next shot with quill shot (shoots spikes from ball).'
             }
         ];
-        
-        // Character power systems
-        this.petarPower = new PetarPower(this);
-        this.johnPower = new JohnPower(this);
-        this.spikeyPower = new SpikeyPower(this);
         
         // John the Gunner power system
         this.gamePaused = false;
         this.rouletteActive = false;
-        this.selectedPower = null; // Current active power: 'spread', 'rapid', or 'explosion'
-        this.powerQueue = []; // Queue for selected powers (one per roulette completed)
-        this.rouletteQueue = []; // Queue for roulettes to play (one per green peg hit)
+        this.selectedPower = null; // 'spread', 'rapid', or 'explosion'
         this.rapidShotQueue = []; // Queue for rapid shot balls
         this.rapidShotDelay = 0.3; // Delay between rapid shots (seconds)
         this.lastRapidShotTime = 0;
-        
-        // Spikey the PufferFish power system
-        this.quillShotActive = false; // Flag for quill shot power
-        this.spikes = []; // Array to track active spikes
-        this.greenPegSpikeHitPegs = []; // Track pegs hit by green peg spikes (not from ball)
         
         // Perks
         this.luckyClover = new LuckyClover();
@@ -182,7 +144,7 @@ export class Game {
                     this.copySeedButton.textContent = originalText;
                 }, 1000);
             }).catch(err => {
-                // Failed to copy seed
+                console.error('Failed to copy seed:', err);
             });
         }
     }
@@ -247,16 +209,21 @@ export class Game {
             seed = parseInt(seedValue, 10);
             if (isNaN(seed)) {
                 // Invalid seed, generate new one
+                console.warn(`Invalid seed value: "${seedValue}", generating new seed`);
                 seed = Date.now();
+            } else {
+                console.log(`Using provided seed: ${seed}`);
             }
         } else {
             // Generate new seed
             seed = Date.now();
+            console.log(`No seed provided, generating new seed: ${seed}`);
         }
         
         // Initialize RNG with seed
         this.currentSeed = seed;
         this.rng = new SeededRNG(seed);
+        console.log(`🎲 Game seed: ${seed}`);
         
         // Update seed display
         this.updateSeedDisplay();
@@ -272,12 +239,16 @@ export class Game {
     }
 
     async init() {
+        console.log('Game initializing...');
         this.setupScene();
         this.setupRenderer();
         this.setupCamera();
         this.setupPhysics();
         this.setupLighting();
         this.setupResizeHandler();
+        
+        // Initialize emoji effects (needs scene, camera, renderer)
+        this.emojiEffect = new EmojiEffect(this.scene, this.camera, this.renderer);
         
         // Initialize emoji effects (needs scene, camera, renderer)
         this.emojiEffect = new EmojiEffect(this.scene, this.camera, this.renderer);
@@ -291,9 +262,8 @@ export class Game {
         this.updateGoalUI();
         this.updatePowerTurnsUI();
         
-        // Hide play again buttons initially
+        // Hide play again button initially
         this.hidePlayAgainButton();
-        this.hidePlayAgainNewSeedButton();
         
         // Create trajectory guide
         this.createTrajectoryGuide();
@@ -318,11 +288,7 @@ export class Game {
             antialias: true
         });
         this.renderer.setSize(width, height);
-        // Limit pixel ratio to prevent performance issues on high-DPI displays (especially 4K)
-        // 4K displays often have devicePixelRatio of 2-3, which can cause sluggish performance
-        // Limit to 1.5x for better performance on 4K displays while maintaining quality
-        const maxPixelRatio = 1.5; // Lowered from 2x for 4K performance
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio));
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     }
 
     setupCamera() {
@@ -360,6 +326,9 @@ export class Game {
         const wallHeight = 9;
         const wallWidth = 12;
         
+        console.log('=== CREATING WALL ENTITIES ===');
+        console.log('Left:', left, 'Right:', right, 'Ceiling:', top);
+        
         const wallMaterial = this.physicsWorld.wallMaterial;
         
         // Left wall - positioned at x = -6, extends from -4.5 to 4.5 in Y
@@ -394,6 +363,8 @@ export class Game {
             wallMaterial
         );
         this.walls.push(ceiling);
+        
+        console.log('Created', this.walls.length, 'wall entities');
     }
 
     createBucket() {
@@ -474,35 +445,10 @@ export class Game {
                 this.setTestAimAngle(keyNum);
             }
             
-            // Key 9: Shoot straight down (270 degrees)
-            if (event.key === '9') {
-                this.testAimAngle = 270; // Straight down
-                // Update trajectory guide if no ball is active
-                if (this.balls.length === 0 && this.ballsRemaining > 0) {
-                    this.updateTrajectoryGuide();
-                }
-            }
-            
-            // Key 'f': Reset all pegs (for testing)
-            if (event.key === 'f' || event.key === 'F') {
-                this.resetAllPegs();
-            }
-            
             // Space key: Shoot
             if (event.key === ' ') {
                 event.preventDefault(); // Prevent page scroll
                 this.handleKeyboardShoot();
-            }
-        });
-    }
-    
-    resetAllPegs() {
-        // Reset all pegs to unhit state
-        let resetCount = 0;
-        this.pegs.forEach(peg => {
-            if (peg.hit) {
-                peg.reset();
-                resetCount++;
             }
         });
     }
@@ -520,6 +466,7 @@ export class Game {
         
         const angles = [5, 189, 227, 265, 303, 341];
         this.testAimAngle = angles[keyNum - 1];
+        console.log(`🎯 Test aim angle set to ${this.testAimAngle}° (key ${keyNum})`);
         
         // Update trajectory guide if no ball is active
         if (this.balls.length === 0 && this.ballsRemaining > 0) {
@@ -579,7 +526,7 @@ export class Game {
         
         // Get target position - use test aim angle if set, otherwise use mouse position
         let targetX, targetY;
-        let mouseX, mouseY, normalizedX, normalizedY;
+        let mouseX, mouseY, normalizedX, normalizedY; // Declare these outside for console.log
         
         if (this.testAimAngle !== null) {
             // Use test aim angle (from keyboard)
@@ -589,6 +536,7 @@ export class Game {
             targetY = Math.sin(angleRad) * distance;
             // Clear test aim angle after use
             this.testAimAngle = null;
+            // Set defaults for console.log
             mouseX = null;
             mouseY = null;
             normalizedX = null;
@@ -635,12 +583,7 @@ export class Game {
         }
         
         // Calculate angle in degrees (standard atan2: 0° = right, 90° = up, 180° = left, 270° = down)
-        // Round dx/dy before atan2 for determinism
-        dx = this.roundToDecimals(dx);
-        dy = this.roundToDecimals(dy);
         let angle = Math.atan2(dy, dx) * (180 / Math.PI);
-        // Round angle for determinism
-        angle = this.roundToDecimals(angle);
         // Convert from -180 to 180 range to 0 to 360 range
         if (angle < 0) {
             angle += 360;
@@ -664,10 +607,9 @@ export class Game {
         }
         
         // Convert back to radians and calculate velocity
-        // Round angleRad for determinism
-        const angleRad = this.roundToDecimals(angle * (Math.PI / 180));
-        const clampedDx = this.roundToDecimals(Math.cos(angleRad));
-        const clampedDy = this.roundToDecimals(Math.sin(angleRad));
+        const angleRad = angle * (Math.PI / 180);
+        const clampedDx = Math.cos(angleRad);
+        const clampedDy = Math.sin(angleRad);
         
         // Normalize direction and apply speed
         const speed = this.ballShotSpeed;
@@ -680,6 +622,21 @@ export class Game {
         
         const originalVelocity = { x: velocityX, y: velocityY, z: 0 };
         
+        console.log('🎯 SHOOTING BALL:', { 
+            mouseX: mouseX !== null ? mouseX.toFixed(2) : 'N/A (keyboard)', 
+            mouseY: mouseY !== null ? mouseY.toFixed(2) : 'N/A (keyboard)',
+            normalizedX: normalizedX !== null ? normalizedX.toFixed(3) : 'N/A (keyboard)', 
+            normalizedY: normalizedY !== null ? normalizedY.toFixed(3) : 'N/A (keyboard)',
+            targetX: targetX.toFixed(3), 
+            targetY: targetY.toFixed(3), 
+            spawnX, 
+            spawnY,
+            dx: dx.toFixed(3), 
+            dy: dy.toFixed(3), 
+            distance: distance.toFixed(3),
+            velocityX: velocityX.toFixed(3), 
+            velocityY: velocityY.toFixed(3)
+        });
         
         // Reset lucky clover for new ball
         this.luckyClover.reset();
@@ -693,58 +650,49 @@ export class Game {
         // Hide trajectory guide when shooting
         this.hideTrajectoryGuide();
         
-        // Check if John's power is active - if selectedPower is set from roulette, use it
-        // (Roulette was already triggered when power turn became ready, not when player clicks)
-        if (this.selectedCharacter?.id === 'john' && this.selectedPower) {
-            // Execute shot with selected power (will consume selectedPower in handleShot)
-            this.executeShot(spawnX, spawnY, spawnZ, targetX, targetY, originalVelocity);
-            return;
-        }
-        
-        // No power selected, proceed with normal shot
-        this.executeShot(spawnX, spawnY, spawnZ, targetX, targetY, originalVelocity);
-    }
-    
-    executeShot(spawnX, spawnY, spawnZ, targetX, targetY, originalVelocity) {
-        // Check if power is available for this shot BEFORE decrementing
-        const hasPower = this.powerTurnsRemaining > 0;
-        
-        // Check if John's power should be used for this shot (if selectedPower is set from roulette)
-        const johnPowerUsed = this.johnPower.handleShot(spawnX, spawnY, spawnZ, targetX, targetY, originalVelocity);
-        
-        if (!johnPowerUsed) {
-            // Normal shot or quill shot
+        // Check if John's power is active
+        if (this.selectedCharacter && this.selectedCharacter.id === 'john' && this.selectedPower) {
+            if (this.selectedPower === 'spread') {
+                // Spread shot: 3 balls at +15°, 0°, -15°
+                this.spawnSpreadShot(spawnX, spawnY, spawnZ, targetX, targetY);
+                this.selectedPower = null; // Consume power
+            } else if (this.selectedPower === 'rapid') {
+                // Rapid shot: initial shot + 2 more in succession
+                // Only decrement ball count once
+                this.ballsRemaining--;
+                this.updateBallsRemainingUI();
+                
+                // Fire initial shot (white ball)
+                this.spawnBall(spawnX, spawnY, spawnZ, originalVelocity, originalVelocity, false);
+                
+                // Queue 2 more shots (yellow balls)
+                if (!this.rapidShotQueue) {
+                    this.rapidShotQueue = [];
+                }
+                this.rapidShotQueue.push({
+                    spawnX, spawnY, spawnZ,
+                    targetX, targetY,
+                    originalVelocity
+                });
+                this.rapidShotQueue.push({
+                    spawnX, spawnY, spawnZ,
+                    targetX, targetY,
+                    originalVelocity
+                });
+                this.lastRapidShotTime = performance.now() / 1000;
+                this.selectedPower = null; // Consume power
+            } else if (this.selectedPower === 'explosion') {
+                // Explosion: spawn bomb
+                this.spawnBomb(spawnX, spawnY, spawnZ, originalVelocity);
+                this.selectedPower = null; // Consume power
+            }
+        } else {
+            // Normal shot
             // Decrement balls remaining and update UI
             this.ballsRemaining--;
             this.updateBallsRemainingUI();
             
-            // Check if quill shot should be active (based on power turns remaining, not just the flag)
-            // Quill shot is available if: has power turns AND is Spikey AND quill shot was activated (flag is true)
-            const isQuillShot = hasPower && this.selectedCharacter?.id === 'spikey' && this.quillShotActive;
-            
-            this.spawnBall(spawnX, spawnY, spawnZ, originalVelocity, originalVelocity, false, isQuillShot);
-            
-            // Consume quill shot flag after spawnBall (but keep power turns active for next shot if counter > 1)
-            // Only consume if we actually used quill shot AND this was the last power turn
-            if (isQuillShot && this.powerTurnsRemaining <= 1) {
-                this.quillShotActive = false;
-            }
-        }
-        
-        // Decrement power turns after shot is taken (if power was available)
-        if (hasPower) {
-            this.powerTurnsRemaining--;
-            this.updatePowerTurnsUI();
-            this.updatePowerDisplay();
-            
-            // Disable powers when counter reaches 0
-            if (this.powerTurnsRemaining === 0) {
-                this.luckyCloverEnabled = false;
-                this.quillShotActive = false;
-                this.selectedPower = null;
-                this.powerQueue = [];
-                this.updatePowerDisplay();
-            }
+            this.spawnBall(spawnX, spawnY, spawnZ, originalVelocity, originalVelocity, false);
         }
     }
     
@@ -834,6 +782,7 @@ export class Game {
         const bombPos = bomb.body.position;
         const explosionRadius = 1.5;
         
+        console.log('💣 Bomb exploded at:', bombPos, 'radius:', explosionRadius);
         
         // Find all pegs within explosion radius
         const pegsToHit = this.pegs.filter(peg => {
@@ -866,6 +815,7 @@ export class Game {
             
             // Activate 1.25x multiplier for following pegs
             this.purplePegMultiplier = 1.25;
+            console.log('💜 Purple peg hit by explosion! 1.25x multiplier activated');
             
             // Update UI
             this.updateScoreUI();
@@ -956,6 +906,7 @@ export class Game {
         // Add to balls array
         this.balls.push(bomb);
         
+        console.log('💣 Bomb converted to regular ball');
     }
     
     createTrajectoryGuide() {
@@ -1152,91 +1103,6 @@ export class Game {
         }
     }
     
-    consumePower() {
-        // Remove current power from queue and set next one
-        if (this.powerQueue.length > 0) {
-            this.powerQueue.shift();
-            // Set next power in queue as current
-            this.selectedPower = this.powerQueue.length > 0 ? this.powerQueue[0] : null;
-            this.updatePowerDisplay();
-        } else {
-            this.selectedPower = null;
-            this.updatePowerDisplay();
-        }
-    }
-    
-    updatePowerDisplay() {
-        // Update power display at spawn point (works for all characters)
-        if (!this.selectedCharacter || this.powerTurnsRemaining === 0) {
-            // No power active - clear displays
-            if (this.currentPowerDisplay) {
-                this.currentPowerDisplay.textContent = '';
-            }
-            if (this.nextPowerDisplay) {
-                this.nextPowerDisplay.textContent = '';
-                // Remove background when no power
-                this.nextPowerDisplay.style.background = 'transparent';
-            }
-            return;
-        }
-        
-        const powerNames = {
-            'spread': 'Spread Shot',
-            'rapid': 'Rapid Shot',
-            'explosion': 'Explosion',
-            'quill': 'Quill Shot',
-            'lucky': 'Lucky Clover'
-        };
-        
-        // Determine current power based on character
-        // Only show power name if power turns are available (power activates on shot, not immediately)
-        let currentPowerName = '';
-        if (this.selectedCharacter.id === 'john' && this.selectedPower) {
-            currentPowerName = powerNames[this.selectedPower] || this.selectedPower;
-        } else if (this.selectedCharacter.id === 'spikey' && this.quillShotActive && this.powerTurnsRemaining > 0) {
-            currentPowerName = powerNames['quill'];
-        } else if (this.selectedCharacter.id === 'petar' && this.powerTurnsRemaining > 0) {
-            currentPowerName = powerNames['lucky'];
-        }
-        
-        // Show current power
-        if (this.currentPowerDisplay) {
-            if (currentPowerName) {
-                this.currentPowerDisplay.textContent = currentPowerName;
-            } else {
-                this.currentPowerDisplay.textContent = '';
-            }
-        }
-        
-        // Show next powers (if queued)
-        if (this.nextPowerDisplay) {
-            const nextPowers = [];
-            
-            // For gunner, show queued powers
-            if (this.selectedCharacter.id === 'john' && this.powerQueue.length > 1) {
-                // Show all queued powers (skip first one as it's current)
-                for (let i = 1; i < Math.min(this.powerQueue.length, 3); i++) {
-                    const powerName = powerNames[this.powerQueue[i]] || this.powerQueue[i];
-                    nextPowers.push(powerName);
-                }
-                // Add "+" if there are more than 2 total powers in queue
-                if (this.powerQueue.length > 3) {
-                    nextPowers.push('+');
-                }
-            }
-            
-            if (nextPowers.length > 0) {
-                this.nextPowerDisplay.textContent = nextPowers.join(' | ');
-                // Show background only when there's a power active
-                this.nextPowerDisplay.style.background = 'rgba(0, 0, 0, 0.4)';
-            } else {
-                this.nextPowerDisplay.textContent = '';
-                // Remove background when no next power
-                this.nextPowerDisplay.style.background = 'transparent';
-            }
-        }
-    }
-    
     updateFreeBallMeter() {
         if (this.freeBallMeterFill) {
             const progress = Math.min(100, (this.currentShotScore / this.freeBallThreshold) * 100);
@@ -1252,15 +1118,9 @@ export class Game {
         const allOrangePegsCleared = this.goalProgress >= this.goalTarget;
         
         if (noBallsLeft || allOrangePegsCleared) {
-            // Clear roulette queue on game end to avoid overflow to next game
-            if (this.rouletteQueue) {
-                this.rouletteQueue = [];
-            }
             this.showPlayAgainButton();
-            this.showPlayAgainNewSeedButton();
         } else {
             this.hidePlayAgainButton();
-            this.hidePlayAgainNewSeedButton();
         }
     }
     
@@ -1273,18 +1133,6 @@ export class Game {
     hidePlayAgainButton() {
         if (this.playAgainButton) {
             this.playAgainButton.style.display = 'none';
-        }
-    }
-    
-    showPlayAgainNewSeedButton() {
-        if (this.playAgainNewSeedButton) {
-            this.playAgainNewSeedButton.style.display = 'block';
-        }
-    }
-    
-    hidePlayAgainNewSeedButton() {
-        if (this.playAgainNewSeedButton) {
-            this.playAgainNewSeedButton.style.display = 'none';
         }
     }
     
@@ -1327,13 +1175,13 @@ export class Game {
                 
                 // Random selection
                 const selectedIndex = this.rng.randomInt(0, options.length);
-                const selectedPowerName = options[selectedIndex];
+                this.selectedPower = options[selectedIndex];
                 
                 // Highlight selected option briefly
                 document.querySelectorAll('.roulette-option').forEach(opt => {
                     opt.classList.remove('highlighted');
                 });
-                const selectedOption = document.querySelector(`#roulette-${selectedPowerName}`);
+                const selectedOption = document.querySelector(`#roulette-${options[selectedIndex]}`);
                 if (selectedOption) {
                     selectedOption.classList.add('highlighted');
                 }
@@ -1346,41 +1194,16 @@ export class Game {
                     this.gamePaused = false;
                     this.rouletteActive = false;
                     
-                    // Add selected power to queue
-                    this.powerQueue.push(selectedPowerName);
-                    
-                    // Update current power (first in queue)
-                    if (this.powerQueue.length === 1) {
-                        this.selectedPower = this.powerQueue[0];
-                    }
-                    
-                    // Update power display
-                    this.updatePowerDisplay();
-                    
-                    // If there are more roulettes in queue and power turns available, trigger next one
-                    if (this.rouletteQueue.length > 0 && this.powerTurnsRemaining > 0 && this.balls.length === 0) {
-                        this.triggerRoulette();
-                        this.rouletteQueue.shift();
-                    }
+                    // Store power for next shot
+                    console.log(`🎰 Power selected: ${this.selectedPower}`);
                 }, 1000);
             }
         }, cycleInterval);
     }
     
     restartGame() {
-        // Hide play again buttons
+        // Hide play again button
         this.hidePlayAgainButton();
-        this.hidePlayAgainNewSeedButton();
-        
-        // Clear roulette queue and power queue on restart
-        if (this.rouletteQueue) {
-            this.rouletteQueue = [];
-        }
-        if (this.powerQueue) {
-            this.powerQueue = [];
-        }
-        this.selectedPower = null;
-        this.updatePowerDisplay();
         
         // Reset RNG to initial seed for deterministic replay
         if (this.rng) {
@@ -1396,19 +1219,12 @@ export class Game {
         this.purplePegMultiplier = 1.0;
         this.orangePegMultiplier = 1.0;
         
-        // Reset character powers
-        this.petarPower.reset();
-        this.johnPower.reset();
-        this.spikeyPower.reset();
-        
-        // Clear all spikes
-        if (this.spikes) {
-            this.spikes.forEach(spike => spike.remove());
-            this.spikes = [];
-        }
-        
-        // Clear green peg spike hit pegs tracking
-        this.greenPegSpikeHitPegs = [];
+        // Reset John's power system
+        this.gamePaused = false;
+        this.rouletteActive = false;
+        this.selectedPower = null;
+        this.rapidShotQueue = [];
+        this.lastRapidShotTime = 0;
         
         // Reset test aim angle
         this.testAimAngle = null;
@@ -1434,81 +1250,6 @@ export class Game {
         this.updateOrangePegMultiplier();
         
         // Reload level
-        this.loadLevel('/levels/level1.json');
-    }
-    
-    restartGameWithNewSeed() {
-        // Hide play again buttons
-        this.hidePlayAgainButton();
-        this.hidePlayAgainNewSeedButton();
-        
-        // Clear roulette queue and power queue on restart
-        if (this.rouletteQueue) {
-            this.rouletteQueue = [];
-        }
-        if (this.powerQueue) {
-            this.powerQueue = [];
-        }
-        this.selectedPower = null;
-        this.updatePowerDisplay();
-        
-        // Generate new seed
-        const newSeed = Date.now();
-        
-        // Initialize RNG with new seed
-        this.currentSeed = newSeed;
-        this.rng = new SeededRNG(newSeed);
-        
-        // Update seed display
-        this.updateSeedDisplay();
-        
-        // Reset game state
-        this.ballsRemaining = 10;
-        this.score = 0;
-        this.goalProgress = 0;
-        this.powerTurnsRemaining = 0;
-        this.currentShotScore = 0;
-        this.purplePegMultiplier = 1.0;
-        this.orangePegMultiplier = 1.0;
-        
-        // Reset character powers
-        this.petarPower.reset();
-        this.johnPower.reset();
-        this.spikeyPower.reset();
-        
-        // Clear all spikes
-        if (this.spikes) {
-            this.spikes.forEach(spike => spike.remove());
-            this.spikes = [];
-        }
-        
-        // Clear green peg spike hit pegs tracking
-        this.greenPegSpikeHitPegs = [];
-        
-        // Reset test aim angle
-        this.testAimAngle = null;
-        
-        // Clear all balls
-        this.balls.forEach(ball => ball.remove());
-        this.balls = [];
-        
-        // Clear all pegs
-        this.pegs.forEach(peg => peg.remove());
-        this.pegs = [];
-        
-        // Reset lucky clover
-        this.luckyClover.reset();
-        this.luckyClover.enabled = false;
-        
-        // Update UI
-        this.updateBallsRemainingUI();
-        this.updateScoreUI();
-        this.updateGoalUI();
-        this.updatePowerTurnsUI();
-        this.updateFreeBallMeter();
-        this.updateOrangePegMultiplier();
-        
-        // Reload level (will use new seed for peg generation)
         this.loadLevel('/levels/level1.json');
     }
 
@@ -1583,9 +1324,10 @@ export class Game {
         // Change color to purple (lighter purple for default state)
         this.purplePeg.mesh.material.color.setHex(0xba55d3); // Lighter purple
         
+        console.log('💜 Purple peg assigned');
     }
 
-    spawnBall(x, y, z, velocity = null, originalVelocity = null, isYellow = false, isQuillShot = false) {
+    spawnBall(x, y, z, velocity = null, originalVelocity = null, isYellow = false) {
         const ballMaterial = this.physicsWorld.getBallMaterial();
         const ball = new Ball(this.scene, this.physicsWorld, { x, y, z }, velocity, ballMaterial, isYellow);
         // Store original velocity for lucky clover perk
@@ -1602,37 +1344,27 @@ export class Game {
         ball.luckyCloverActive = this.powerTurnsRemaining > 0;
         // Track if this ball used power (so we know to decrement when destroyed)
         ball.usedPower = this.powerTurnsRemaining > 0;
-        // Track if this is a quill shot ball
-        ball.isQuillShot = isQuillShot;
-        ball.lastQuillShotTime = isQuillShot ? performance.now() / 1000 : 0;
-        
-        // Apply reduced gravity for quill shot balls (0.85x normal gravity)
-        if (isQuillShot) {
-            // Set custom gravity on the ball body (0.85x normal gravity)
-            // Normal gravity is -9.82, so reduced is -9.82 * 0.85 = -8.347
-            ball.body.gravity = new CANNON.Vec3(0, -9.82 * 0.85, 0);
-        }
-        
-        // Enable lucky clover for this ball if power turns are available (power activates on shot, not on green peg hit)
-        if (this.powerTurnsRemaining > 0 && this.selectedCharacter?.id === 'petar') {
+        // Enable lucky clover for this ball if power turns are available
+        if (this.powerTurnsRemaining > 0) {
             this.luckyClover.enabled = true;
+            // Decrement power turns (will be decremented when ball is destroyed)
         } else {
-            // Disable if no power turns remaining or not Petar
+            // Disable if no power turns remaining
             this.luckyClover.enabled = false;
         }
         this.balls.push(ball);
     }
-    
 
     async loadLevel(levelPath) {
         try {
             const levelData = await LevelLoader.loadLevel(levelPath);
             
             if (!LevelLoader.validateLevel(levelData)) {
-                // Invalid level data
+                console.error('Invalid level data');
                 return;
             }
 
+            console.log(`Loading level: ${levelData.name}`);
             
             // Create pegs from level data
             const pegMaterial = this.physicsWorld.getPegMaterial();
@@ -1643,14 +1375,10 @@ export class Game {
                     ? LevelLoader.hexToNumber(pegData.color) 
                     : 0x4a90e2; // Default blue color
                 
-                // Round peg positions to 3 decimals for determinism (match ball position precision)
-                const roundedX = this.roundToDecimals(pegData.x);
-                const roundedY = this.roundToDecimals(pegData.y);
-                
                 const peg = new Peg(
                     this.scene,
                     this.physicsWorld,
-                    { x: roundedX, y: roundedY, z: 0 },
+                    { x: pegData.x, y: pegData.y, z: 0 },
                     baseColor,
                     pegMaterial
                 );
@@ -1664,99 +1392,49 @@ export class Game {
                 this.pegs.push(peg);
             });
             
-            // Skip special peg assignment for test level (only blue pegs)
-            const isTestLevel = levelData.name && levelData.name.toLowerCase().includes('test');
-            
-            if (!isTestLevel) {
-                // Randomly select pegs for special types
-                const indices = Array.from({length: this.pegs.length}, (_, i) => i);
-                // Fisher-Yates shuffle
-                for (let i = indices.length - 1; i > 0; i--) {
-                    const j = this.rng.randomInt(0, i + 1);
-                    [indices[i], indices[j]] = [indices[j], indices[i]];
-                }
-                
-                // Select 2 green pegs (power pegs) first
-                const greenIndices = indices.slice(0, 2);
-                greenIndices.forEach(i => {
-                    const peg = this.pegs[i];
-                    peg.isGreen = true;
-                    peg.pointValue = 800; // Green pegs are worth 1200 points
-                    // Change color to green
-                    peg.mesh.material.color.setHex(0x32cd32); // Green color
-                });
-                
-                // Select 25 orange pegs from remaining indices (skip the 2 green ones)
-                const orangeIndices = indices.slice(2, 27);
-                orangeIndices.forEach(i => {
-                    const peg = this.pegs[i];
-                    peg.isOrange = true;
-                    peg.pointValue = 500;
-                    // Change color to orange
-                    peg.mesh.material.color.setHex(0xff8c00); // Orange color
-                });
-                
-                // Assign initial purple peg
-                this.assignPurplePeg();
-            } else {
+            // Randomly select pegs for special types
+            const indices = Array.from({length: this.pegs.length}, (_, i) => i);
+            // Fisher-Yates shuffle
+            for (let i = indices.length - 1; i > 0; i--) {
+                const j = this.rng.randomInt(0, i + 1);
+                [indices[i], indices[j]] = [indices[j], indices[i]];
             }
+            
+            // Select 2 green pegs (power pegs) first
+            const greenIndices = indices.slice(0, 2);
+            greenIndices.forEach(i => {
+                const peg = this.pegs[i];
+                peg.isGreen = true;
+                peg.pointValue = 800; // Green pegs are worth 1200 points
+                // Change color to green
+                peg.mesh.material.color.setHex(0x32cd32); // Green color
+            });
+            
+            // Select 25 orange pegs from remaining indices (skip the 2 green ones)
+            const orangeIndices = indices.slice(2, 27);
+            orangeIndices.forEach(i => {
+                const peg = this.pegs[i];
+                peg.isOrange = true;
+                peg.pointValue = 500;
+                // Change color to orange
+                peg.mesh.material.color.setHex(0xff8c00); // Orange color
+            });
+            
+            console.log(`Loaded ${this.pegs.length} pegs (${greenIndices.length} green, ${orangeIndices.length} orange)`);
+            
+            // Assign initial purple peg
+            this.assignPurplePeg();
             
             // Initialize orange peg multiplier tracker
             this.updateOrangePegMultiplier();
         } catch (error) {
-            // Failed to load level
+            console.error('Failed to load level:', error);
         }
     }
 
     setupCollisionDetection() {
-        // Use checkCollisions() as PRIMARY method (checks contacts array every frame)
-        // beginContact event listener is a fallback for edge cases
-        // postStep event listener checks contacts immediately after each physics substep
-        // Both use processedContacts Set to prevent duplicate processing in the same frame
-        this.processedContacts = new Set(); // Track contacts processed this frame
-        
-        // postStep fires after each physics substep - check contacts here for fast-moving objects
-        // This catches contacts that are resolved within a single substep
-        this.physicsWorld.world.addEventListener('postStep', () => {
-            // Check contacts immediately after physics step
-            const contacts = this.physicsWorld.world.contacts;
-            if (contacts && contacts.length > 0) {
-                for (let i = 0; i < contacts.length; i++) {
-                    const contact = contacts[i];
-                    if (!contact) continue;
-                    
-                    const bodyA = contact.bi;
-                    const bodyB = contact.bj;
-                    if (!bodyA || !bodyB) continue;
-                    
-                    const isBall = this.balls.some(b => b.body === bodyA || b.body === bodyB);
-                    const isPeg = this.pegs.some(p => p.body === bodyA || p.body === bodyB);
-                    const isSpike = this.spikes && this.spikes.some(s => s.body === bodyA || s.body === bodyB);
-                    
-                    // Ignore ball-spike collisions (spikes should not interact with balls)
-                    if (isBall && isSpike) {
-                        continue; // Skip this collision
-                    }
-                    
-                    if (isBall && isPeg) {
-                        const contactKey = `${Math.min(bodyA.id, bodyB.id)}-${Math.max(bodyA.id, bodyB.id)}`;
-                        
-                        if (!this.processedContacts.has(contactKey)) {
-                            const peg = this.pegs.find(p => p.body === bodyA || p.body === bodyB);
-                            const ball = this.balls.find(b => b.body === bodyA || b.body === bodyB);
-                            
-                            this.processedContacts.add(contactKey);
-                            this.handleCollision(bodyA, bodyB);
-                        }
-                    }
-                    
-                    // Spike-peg collisions are now handled manually in the game loop
-                    // (since spikes have collisionResponse = false to avoid ball interactions)
-                }
-            }
-        });
-        
-        // Event listener for immediate collision detection (fallback)
+        // Use both event listeners and contacts array checking for maximum reliability
+        // Event listener for immediate collision detection
         this.physicsWorld.world.addEventListener('beginContact', (event) => {
             try {
                 // Try different event structures
@@ -1768,33 +1446,10 @@ export class Game {
                 
                 if (!bodyA || !bodyB) return;
                 
-                // Check what types these bodies are
-                const isBall = this.balls.some(b => b.body === bodyA || b.body === bodyB);
-                const isPeg = this.pegs.some(p => p.body === bodyA || p.body === bodyB);
-                const isWall = this.walls.some(w => w.body === bodyA || w.body === bodyB);
-                const isSpike = this.spikes && this.spikes.some(s => s.body === bodyA || s.body === bodyB);
-                
-                // Ignore ball-spike collisions (spikes should not interact with balls)
-                if (isBall && isSpike) {
-                    return; // Skip this collision
-                }
-                const peg = isPeg ? this.pegs.find(p => p.body === bodyA || p.body === bodyB) : null;
-                const ball = isBall ? this.balls.find(b => b.body === bodyA || b.body === bodyB) : null;
-                
-                // Create a unique key for this contact pair
-                const contactKey = `${Math.min(bodyA.id, bodyB.id)}-${Math.max(bodyA.id, bodyB.id)}`;
-                
-                // Only process if not already processed this frame (prevents race condition with checkCollisions)
-                if (!this.processedContacts.has(contactKey)) {
-                    this.processedContacts.add(contactKey);
-                    this.handleCollision(bodyA, bodyB);
-                    
-                    // Spike-peg collisions are now handled manually in the game loop
-                    // (since spikes have collisionResponse = false to avoid ball interactions)
-                }
+                this.handleCollision(bodyA, bodyB);
             } catch (error) {
                 // Fallback to contacts array if event structure is wrong
-                // Event listener error, using contacts array
+                console.warn('Event listener error, using contacts array:', error);
             }
         });
     }
@@ -1817,11 +1472,10 @@ export class Game {
         
         if (speed > this.maxReboundSpeed) {
             // Normalize and scale to max rebound speed
-            // Round scale factor for determinism
-            const scale = this.roundToDecimals(this.maxReboundSpeed / speed);
-            velocity.x = this.roundToDecimals(velocity.x * scale);
-            velocity.y = this.roundToDecimals(velocity.y * scale);
-            velocity.z = this.roundToDecimals(velocity.z * scale);
+            const scale = this.maxReboundSpeed / speed;
+            velocity.x *= scale;
+            velocity.y *= scale;
+            velocity.z *= scale;
             ball.body.velocity = velocity;
         }
         
@@ -1829,282 +1483,18 @@ export class Game {
         this.roundVec3(ball.body.velocity);
     }
 
-    handleSpikePegCollision(spike, peg) {
-        // Spike hit a peg - treat it like a ball hit
-        // Check if this is a new hit
-        if (peg.hit) {
-            return; // Already hit
-        }
-        
-        // Mark spike as having hit this peg
-        spike.hitPegs.push(peg);
-        
-        // Track peg hit by spike for ball removal tracking
-        if (spike.parentBall) {
-            // Spike from ball (quill shot) - track in ball
-            if (!spike.parentBall.spikeHitPegs) {
-                spike.parentBall.spikeHitPegs = [];
-            }
-            if (!spike.parentBall.spikeHitPegs.includes(peg)) {
-                spike.parentBall.spikeHitPegs.push(peg);
-            }
-            // Also add to ball's hitPegs for removal tracking
-            if (!spike.parentBall.hitPegs.includes(peg)) {
-                spike.parentBall.hitPegs.push(peg);
-            }
-        } else {
-            // Spike from green peg (not from ball) - track separately for removal
-            if (!this.greenPegSpikeHitPegs.includes(peg)) {
-                this.greenPegSpikeHitPegs.push(peg);
-            }
-        }
-        
-        // Call peg.onHit() to mark it as hit
-        peg.onHit();
-        
-        // Process scoring and effects (similar to ball-peg collision)
-        // Check for green peg (power activation)
-        if (peg.isGreen) {
-            // Petar the Leprechaun: add 3 turns per green peg hit (others add 1)
-            if (this.selectedCharacter?.id === 'petar') {
-                this.powerTurnsRemaining += 3;
-                this.updatePowerTurnsUI();
-                this.updatePowerDisplay();
-                
-                // Show clover emoji at peg position
-                const pegPos = peg.body.position;
-                if (this.emojiEffect) {
-                    this.emojiEffect.showEmoji('🍀', { x: pegPos.x, y: pegPos.y, z: pegPos.z || 0 }, 0.5);
-                }
-            } else {
-                // All other characters: add 1 turn per green peg hit
-                this.powerTurnsRemaining += 1;
-                this.updatePowerTurnsUI();
-            }
-            
-            // John the Gunner: trigger roulette immediately when green peg is hit
-            if (this.selectedCharacter?.id === 'john') {
-                // Trigger roulette immediately (will pause game and show UI)
-                if (!this.rouletteActive && !this.gamePaused) {
-                    this.triggerRoulette();
-                } else {
-                    // If roulette is already active, queue it
-                    this.rouletteQueue.push({
-                        timestamp: performance.now() / 1000
-                    });
-                }
-            }
-            
-            // Spikey the PufferFish: spawn spikes and activate quill shot
-            if (this.selectedCharacter?.id === 'spikey') {
-                this.spikeyPower.onGreenPegHit(peg);
-            }
-        }
-        
-        // Calculate score
-        const totalMultiplier = this.orangePegMultiplier * this.purplePegMultiplier;
-        let points = peg.pointValue;
-        
-        if (peg.isPurple) {
-            points = 2000;
-            this.purplePegMultiplier = 1.25;
-            this.updateOrangePegMultiplier();
-            peg.mesh.material.color.setHex(0x9370db);
-        } else {
-            if (peg.isOrange) {
-                this.orangePegMultiplier = Math.min(this.orangePegMultiplier * 2, 10);
-                this.updateOrangePegMultiplier();
-            }
-        }
-        
-        const finalPoints = Math.floor(points * totalMultiplier);
-        this.score += finalPoints;
-        this.currentShotScore += finalPoints;
-        
-        // Update UI
-        this.updateScoreUI();
-        
-        // Handle orange peg goal progress
-        if (peg.isOrange) {
-            this.goalProgress++;
-            this.updateGoalUI();
-        }
-        
-        // Handle purple peg multiplier
-        if (peg.isPurple && peg === this.purplePeg) {
-            this.assignPurplePeg();
-        }
-        
-    }
-    
     handleCollision(bodyA, bodyB) {
-        // Find the ball or bomb involved - try reference match first, then ID match as fallback
-        let ball = this.balls.find(b => b.body === bodyA || b.body === bodyB);
-        let bomb = this.bombs ? this.bombs.find(b => b.body === bodyA || b.body === bodyB) : null;
-        
-        // Fallback: if not found by reference, try by ID (for timing/race condition issues)
-        if (!ball && bodyA && bodyB) {
-            const ballById = this.balls.find(b => b.body.id === bodyA.id || b.body.id === bodyB.id);
-            if (ballById) {
-                ball = ballById;
-            }
-        }
-        
+        // Find the ball or bomb involved
+        const ball = this.balls.find(b => b.body === bodyA || b.body === bodyB);
+        const bomb = this.bombs ? this.bombs.find(b => b.body === bodyA || b.body === bodyB) : null;
         const entity = ball || bomb; // Use ball if found, otherwise bomb
+        if (!entity) return;
         
-        if (!entity) {
-            return;
-        }
-        
-        // Check for ball/bomb-peg collision FIRST - this is the most important
+        // Check for ball/bomb-peg collision
         const peg = this.pegs.find(p => p.body === bodyA || p.body === bodyB);
-        
-        // Process peg collision logic IMMEDIATELY if it's a ball-peg collision
-        if (peg && ball) {
-            try {
-                // Clamp velocity after peg collision
-                this.clampBallVelocity(ball);
-                
-                // Check if this is a new hit (peg not already hit)
-                const isNewHit = !peg.hit;
-                const wasAlreadyTracked = ball.hitPegs.includes(peg);
-            
-            // ALWAYS handle peg hit if it's new (even if already tracked, we need to ensure onHit is called)
-            // The onHit() method itself checks if already hit, so it's safe to call
-            if (isNewHit) {
-                try {
-                    peg.onHit();
-                } catch (error) {
-                    // ERROR in peg.onHit()
-                }
-                
-                // Track this peg as hit by this ball (only if not already tracked)
-                if (!wasAlreadyTracked) {
-                    try {
-                        if (!ball.hitPegs) {
-                            ball.hitPegs = [];
-                        }
-                        
-                        ball.hitPegs.push(peg);
-                        ball.lastNewPegHitTime = performance.now() / 1000; // Update time
-                    } catch (error) {
-                        // Continue anyway - don't let tracking errors stop processing
-                    }
-                    
-                    // Check if this is the purple peg
-                    try {
-                        const isPurplePeg = peg === this.purplePeg;
-                        
-                        if (isPurplePeg) {
-                            // Purple peg hit - worth 2000 points and activates 1.25x multiplier
-                            // Calculate multiplier before activating purple peg multiplier
-                            const totalMultiplierBefore = this.orangePegMultiplier * this.purplePegMultiplier;
-                            const purplePoints = 2000;
-                            const finalPoints = Math.floor(purplePoints * totalMultiplierBefore);
-                            this.score += finalPoints;
-                            this.currentShotScore += finalPoints;
-                            
-                            // Activate 1.25x multiplier for following pegs
-                            this.purplePegMultiplier = 1.25;
-                            
-                            // Update multiplier display
-                            this.updateOrangePegMultiplier();
-                            
-                            // Ensure purple peg color changes to darker shade (onHit should handle this, but ensure it)
-                            peg.mesh.material.color.setHex(0x9370db); // Medium purple (darker when hit)
-                        } else {
-                            // Add score for regular pegs (after multiplier is activated)
-                            const totalMultiplier = this.orangePegMultiplier * this.purplePegMultiplier;
-                            const basePoints = peg.pointValue || 300;
-                            const finalPoints = Math.floor(basePoints * totalMultiplier);
-                            this.score += finalPoints;
-                            this.currentShotScore += finalPoints;
-                        }
-                        } catch (error) {
-                        // ERROR in purple check / score calculation
-                        // Re-throw to be caught by outer try-catch
-                        throw error;
-                    }
-                    // Update UI
-                    this.updateScoreUI();
-                    this.updateFreeBallMeter();
-                    
-                    // Check for orange peg
-                    if (peg.isOrange) {
-                        this.goalProgress++;
-                        this.updateGoalUI();
-                        this.updateOrangePegMultiplier();
-                    }
-                    
-                    // Check for free ball
-                    if (this.currentShotScore >= this.freeBallThreshold) {
-                        const freeBallsAwarded = Math.floor(this.currentShotScore / this.freeBallThreshold);
-                        this.ballsRemaining += freeBallsAwarded;
-                        this.currentShotScore = this.currentShotScore % this.freeBallThreshold;
-                        this.updateBallsRemainingUI();
-                        this.updateFreeBallMeter();
-                    }
-                    
-                    // Check for green peg (power activation)
-                    if (peg.isGreen) {
-                        // Petar the Leprechaun: add 3 turns per green peg hit (others add 1)
-                        if (this.selectedCharacter?.id === 'petar') {
-                            this.powerTurnsRemaining += 3;
-                            this.updatePowerTurnsUI();
-                            this.updatePowerDisplay();
-                            
-                            // Show clover emoji at peg position
-                            const pegPos = peg.body.position;
-                            if (this.emojiEffect) {
-                                this.emojiEffect.showEmoji('🍀', pegPos, 0.5);
-                            }
-                        } else {
-                            // All other characters: add 1 turn per green peg hit
-                            this.powerTurnsRemaining += 1;
-                            this.updatePowerTurnsUI();
-                        }
-                        
-                        // John the Gunner: trigger roulette immediately when green peg is hit
-                        if (this.selectedCharacter?.id === 'john') {
-                            // Trigger roulette immediately (will pause game and show UI)
-                            if (!this.rouletteActive && !this.gamePaused) {
-                                this.triggerRoulette();
-                            } else {
-                                // If roulette is already active, queue it
-                                this.rouletteQueue.push({
-                                    timestamp: performance.now() / 1000
-                                });
-                            }
-                        }
-                        
-                        // Spikey the PufferFish: spawn spikes and activate quill shot
-                        if (this.selectedCharacter?.id === 'spikey') {
-                            this.spikeyPower.onGreenPegHit(peg);
-                            this.updatePowerDisplay();
-                        }
-                    }
-                    
-                    // Lucky clover perk handling (every 3rd hit bounces with 75% momentum)
-                    if (this.selectedCharacter?.id === 'petar') {
-                        this.petarPower.handleLuckyCloverBounce(ball, peg);
-                    }
-                } else if (wasAlreadyTracked) {
-                    // Peg already tracked - still update last hit time for stuck ball detection
-                    ball.lastNewPegHitTime = performance.now() / 1000;
-                    
-                    // Also trigger lucky clover counter for already hit pegs
-                    if (this.selectedCharacter?.id === 'petar') {
-                        this.petarPower.handleLuckyCloverBounceAlreadyHit(ball, peg);
-                    }
-                }
-            }
-                
-            // Return early after processing peg collision - don't check walls/bucket
-            return;
-            } catch (error) {
-                // ERROR in peg collision processing
-                // Don't return here - let it fall through to other collision checks
-            }
+        if (entity && peg) {
+            // Clamp velocity after peg collision
+            this.clampBallVelocity(entity);
         }
         
         // Check for ball/bomb-wall collision
@@ -2121,7 +1511,6 @@ export class Game {
                     ball.lastWallHitFrame = this.frameCount;
                 }
             }
-            return;
         }
         
         // Check for ball/bomb-bucket collision (walls only, not catcher)
@@ -2138,6 +1527,115 @@ export class Game {
             }
         }
         
+        // Only process peg collision logic if it's a peg
+        if (!peg) return;
+        
+        // Only process peg interactions for balls (bombs don't interact with pegs until they explode)
+        if (!ball) return;
+        
+        const isNewHit = !peg.hit;
+        const wasAlreadyTracked = ball.hitPegs.includes(peg);
+        
+        // Handle new peg hits
+        if (isNewHit) {
+            peg.onHit();
+            
+            // Track this peg as hit by this ball
+            if (!wasAlreadyTracked) {
+                ball.hitPegs.push(peg);
+                ball.lastNewPegHitTime = performance.now() / 1000; // Update time
+                
+                // Check if this is the purple peg
+                if (peg === this.purplePeg) {
+                    // Purple peg hit - worth 1500 points and activates 1.25x multiplier
+                    // Calculate multiplier before activating purple peg multiplier
+                    const totalMultiplierBefore = this.orangePegMultiplier * this.purplePegMultiplier;
+                    const purplePoints = 2000;
+                    const finalPoints = Math.floor(purplePoints * totalMultiplierBefore);
+                    this.score += finalPoints;
+                    this.currentShotScore += finalPoints;
+                    
+                    // Activate 1.25x multiplier for following pegs
+                    this.purplePegMultiplier = 1.25;
+                    console.log('💜 Purple peg hit! 1.25x multiplier activated');
+                    
+                    // Update multiplier display
+                    this.updateOrangePegMultiplier();
+                    
+                    // Ensure purple peg color changes to darker shade (onHit should handle this, but ensure it)
+                    peg.mesh.material.color.setHex(0x9370db); // Medium purple
+                } else {
+                    // Regular peg - apply total multiplier (orange * purple)
+                    const totalMultiplier = this.orangePegMultiplier * this.purplePegMultiplier;
+                    const basePoints = peg.pointValue || 400;
+                    const finalPoints = Math.floor(basePoints * totalMultiplier);
+                    this.score += finalPoints;
+                    this.currentShotScore += finalPoints;
+                }
+                
+                this.updateScoreUI();
+                this.updateFreeBallMeter();
+                
+                // Check for free ball (when current shot score reaches threshold)
+                if (this.currentShotScore >= this.freeBallThreshold) {
+                    // Award free ball
+                    const freeBallsAwarded = Math.floor(this.currentShotScore / this.freeBallThreshold);
+                    this.ballsRemaining += freeBallsAwarded;
+                    this.currentShotScore = this.currentShotScore % this.freeBallThreshold; // Keep remainder
+                    this.updateBallsRemainingUI();
+                    this.updateFreeBallMeter();
+                    console.log(`🎁 Free ball awarded! Balls remaining: ${this.ballsRemaining}`);
+                }
+                
+                    // If orange peg, increment goal progress
+                    if (peg.isOrange) {
+                        this.goalProgress++;
+                        this.updateGoalUI();
+                        // Update orange peg multiplier
+                        this.updateOrangePegMultiplier();
+                        
+                        // Check if all orange pegs are cleared (will check again when ball is destroyed)
+                        if (this.goalProgress >= this.goalTarget) {
+                            // Will show play again button when ball is destroyed
+                        }
+                    }
+                
+                // If green peg (power peg), activate character's power
+                if (peg.isGreen) {
+                    // Activate power based on selected character
+                    if (this.selectedCharacter && this.selectedCharacter.id === 'petar') {
+                        // Petar the Leprechaun: Lucky Clover power
+                        // Add 3 turns (stackable - hitting multiple green pegs adds more turns)
+                        this.powerTurnsRemaining += 3;
+                        this.updatePowerTurnsUI();
+                        console.log(`🍀 Lucky Clover power added! Turns remaining: ${this.powerTurnsRemaining}`);
+                        
+                        // Show clover emoji at peg position
+                        if (this.emojiEffect) {
+                            const pegPos = peg.body.position;
+                            this.emojiEffect.showEmoji('🍀', { x: pegPos.x, y: pegPos.y, z: 0 }, 0.5);
+                        }
+                    } else if (this.selectedCharacter && this.selectedCharacter.id === 'john') {
+                        // John the Gunner: Roulette Power
+                        // Pause game and show roulette
+                        this.triggerRoulette();
+                    }
+                }
+            }
+        }
+        
+        // Check for lucky clover perk (only if enabled for THIS ball)
+        // Allow already-hit pegs to count towards the counter
+        if (ball.luckyCloverActive && ball.originalVelocity) {
+            const activated = this.luckyClover.onPegHit(ball, ball.originalVelocity);
+            
+            // If lucky clover activated (4th bounce), show clover emoji at ball position
+            if (activated && this.emojiEffect) {
+                const ballPos = ball.body.position;
+                this.emojiEffect.showEmoji('🍀', { x: ballPos.x, y: ballPos.y, z: 0 }, 0.5);
+            }
+        }
+        
         // Check for ball-bucket catcher collision (sensor, doesn't bounce)
         if (ball && this.bucket) {
             const bucketCatcher = this.bucket.topCatcher.body === bodyA || this.bucket.topCatcher.body === bodyB
@@ -2150,6 +1648,7 @@ export class Game {
                     ball.caught = true;
                     this.ballsRemaining++;
                     this.updateBallsRemainingUI();
+                    console.log('🎯 Ball caught! Balls remaining:', this.ballsRemaining);
                     
                     // Mark ball for removal
                     ball.shouldRemove = true;
@@ -2159,7 +1658,7 @@ export class Game {
     }
 
     checkCollisions() {
-        // Check contacts array - this is the PRIMARY collision detection method
+        // Check contacts array - this is the primary collision detection method
         // Event listeners can be unreliable, so we rely on checking contacts directly
         const contacts = this.physicsWorld.world.contacts;
         
@@ -2170,37 +1669,6 @@ export class Game {
         
         // Clear processed contacts every frame for fresh detection
         this.processedContacts.clear();
-        
-        // Log all contacts for debugging - ALWAYS log, even if empty
-        const contactSummary = contacts && contacts.length > 0 ? contacts.map((contact, idx) => {
-            if (!contact) return null;
-            const bodyA = contact.bi;
-            const bodyB = contact.bj;
-            if (!bodyA || !bodyB) return null;
-            
-            // Check what types these bodies are
-            const isBall = this.balls.some(b => b.body === bodyA || b.body === bodyB);
-            const isPeg = this.pegs.some(p => p.body === bodyA || p.body === bodyB);
-            const isWall = this.walls.some(w => w.body === bodyA || w.body === bodyB);
-            const peg = isPeg ? this.pegs.find(p => p.body === bodyA || p.body === bodyB) : null;
-            const ball = isBall ? this.balls.find(b => b.body === bodyA || b.body === bodyB) : null;
-            
-            return {
-                index: idx,
-                bodyAId: bodyA.id,
-                bodyBId: bodyB.id,
-                isBall,
-                isPeg,
-                isWall,
-                pegId: peg?.body?.id,
-                ballId: ball?.body?.id,
-                contactKey: `${Math.min(bodyA.id, bodyB.id)}-${Math.max(bodyA.id, bodyB.id)}`,
-                // Check if this is the ball-peg contact we're looking for
-                isBallPegContact: isBall && isPeg
-            };
-        }).filter(c => c !== null) : [];
-        
-        // Process contacts (logging removed)
         
         // Process all active contacts
         for (let i = 0; i < contacts.length; i++) {
@@ -2216,16 +1684,8 @@ export class Game {
             const contactKey = `${Math.min(bodyA.id, bodyB.id)}-${Math.max(bodyA.id, bodyB.id)}`;
             
             // Skip if we've already processed this contact this frame
-            // (could have been processed by beginContact event listener)
-            if (this.processedContacts.has(contactKey)) {
-                // Contact already processed, skipping
-                continue;
-            }
+            if (this.processedContacts.has(contactKey)) continue;
             this.processedContacts.add(contactKey);
-            
-            // Process contact
-            const isPeg = this.pegs.some(p => p.body === bodyA || p.body === bodyB);
-            const isBall = this.balls.some(b => b.body === bodyA || b.body === bodyB);
             
             this.handleCollision(bodyA, bodyB);
         }
@@ -2245,25 +1705,11 @@ export class Game {
         // Update renderer to match canvas wrapper size
         this.renderer.setSize(width, height);
         
-        // Update pixel ratio on resize (in case DPI scaling changes)
-        // Lowered to 1.5x for better 4K performance
-        const maxPixelRatio = 1.5;
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio));
-        
         // Orthographic camera doesn't need aspect ratio update, but we keep it for consistency
-        // The view dimensions stay the same (12x9) regardless of screen resolution
+        // The view dimensions stay the same (12x9)
     }
 
     startGameLoop() {
-        // Initialize timing for determinism
-        const now = performance.now();
-        if (!this.lastTime) {
-            this.lastTime = now;
-        }
-        if (!this.lastFrameTime) {
-            this.lastFrameTime = now;
-        }
-        
         const animate = (currentTime) => {
             this.animationFrameId = requestAnimationFrame(animate);
             
@@ -2273,47 +1719,16 @@ export class Game {
                 return;
             }
             
-            // FPS cap for determinism - ensure consistent frame timing
-            const now = performance.now();
-            const elapsed = now - this.lastFrameTime;
-            
-            // If we're ahead of schedule, wait to maintain target FPS
-            // But don't skip if we're already behind (prevents sluggishness on slower displays)
-            if (elapsed < this.targetFrameTime * 0.9) {
-                // Only skip if we're significantly ahead (more than 10% early)
-                // This prevents skipping when display can't maintain target FPS
-                return;
-            }
-            
-            // Update last frame time
-            this.lastFrameTime = now;
-            
-            // Use fixed deltaTime for determinism (target frame time)
-            // This ensures physics runs at consistent rate regardless of actual frame rate
-            // Even if display runs slower, physics still uses fixed timestep
-            const deltaTime = this.targetFrameTime;
-            
-            // Update lastTime for other timing calculations
-            if (!this.lastTime) {
-                this.lastTime = now;
-            } else {
-                this.lastTime += deltaTime; // Use fixed timestep
-            }
-            
-            // Round deltaTime to 3 decimals for determinism
-            const roundedDeltaTime = this.roundToDecimals(deltaTime);
-            
             // Increment frame counter
             this.frameCount++;
             
+            // Calculate delta time
+            const deltaTime = currentTime - this.lastTime;
+            this.lastTime = currentTime;
+            
             // Update physics
             if (this.physicsWorld) {
-                // Convert to seconds - use fixed rounded deltaTime for determinism
-                this.physicsWorld.update(roundedDeltaTime / 1000);
-                
-                // Check collisions immediately after physics update
-                // This is the PRIMARY collision detection method
-                this.checkCollisions();
+                this.physicsWorld.update(deltaTime / 1000); // Convert to seconds
             }
             
             // Round ball positions and velocities to 3 decimals for determinism
@@ -2327,16 +1742,6 @@ export class Game {
                 this.bombs.forEach(bomb => {
                     this.roundVec3(bomb.body.position);
                     this.roundVec3(bomb.body.velocity);
-                });
-            }
-            
-            // Round projectile spike positions for determinism
-            if (this.spikes) {
-                this.spikes.forEach(spike => {
-                    if (spike.isProjectile) {
-                        this.roundVec3(spike.body.position);
-                        this.roundVec3(spike.body.velocity);
-                    }
                 });
             }
             
@@ -2376,133 +1781,6 @@ export class Game {
             // Update all balls
             // Get current time once for all ball updates (in seconds)
             const currentTimeSeconds = performance.now() / 1000;
-            
-            // Update spikes and handle quill shot
-            if (this.spikes) {
-                // Iterate backwards to safely remove items
-                for (let i = this.spikes.length - 1; i >= 0; i--) {
-                    const spike = this.spikes[i];
-                    spike.update();
-                    
-                    // Manual spike-peg collision detection (since collisionResponse is false)
-                    // Check if the entire spike (line segment) intersects with any peg
-                    // For projectile spikes: base at body.position, tip at body.position + direction * length
-                    // For static spikes (including green peg spikes): base at startPosition, tip at startPosition + direction * currentLength
-                    let spikeBasePos, spikeTipPos;
-                    if (spike.isProjectile) {
-                        const bodyPos = spike.body.position;
-                        spikeBasePos = { x: bodyPos.x, y: bodyPos.y, z: bodyPos.z };
-                        spikeTipPos = {
-                            x: bodyPos.x + spike.direction.x * spike.length,
-                            y: bodyPos.y + spike.direction.y * spike.length,
-                            z: bodyPos.z + spike.direction.z * spike.length
-                        };
-                    } else {
-                        // Static spike (green peg spike): base at startPosition, tip grows from there
-                        // For green peg spikes, use startPosition directly (spike grows from center of peg)
-                        const startPos = spike.startPosition || spike.body.position;
-                        // Use current length (which grows over time for green peg spikes)
-                        const currentLength = Math.max(spike.length, 0.05); // Minimum length for collision detection
-                        spikeBasePos = { x: startPos.x, y: startPos.y, z: startPos.z };
-                        spikeTipPos = {
-                            x: startPos.x + spike.direction.x * currentLength,
-                            y: startPos.y + spike.direction.y * currentLength,
-                            z: startPos.z + spike.direction.z * currentLength
-                        };
-                    }
-                    
-                    for (const peg of this.pegs) {
-                        if (spike.hitPegs.includes(peg)) continue; // Already hit this peg
-                        
-                        // Skip the source peg (green peg that spawned the spikes)
-                        if (spike.isGreenPegSpike && spike.startPosition) {
-                            const sourcePegDist = Math.sqrt(
-                                Math.pow(spike.startPosition.x - peg.body.position.x, 2) +
-                                Math.pow(spike.startPosition.y - peg.body.position.y, 2)
-                            );
-                            if (sourcePegDist < 0.1) continue; // Skip the source peg
-                        }
-                        
-                        const pegPos = peg.body.position;
-                        const pegRadius = 0.09;
-                        
-                        // Simplified and more reliable collision detection
-                        // Check if any point along the spike line segment is within peg radius
-                        const dx = spikeTipPos.x - spikeBasePos.x;
-                        const dy = spikeTipPos.y - spikeBasePos.y;
-                        const lineLength = Math.sqrt(dx * dx + dy * dy);
-                        
-                        let intersects = false;
-                        
-                        if (lineLength > 0.0001) {
-                            // Normalize direction
-                            const dirX = dx / lineLength;
-                            const dirY = dy / lineLength;
-                            
-                            // Vector from base to peg center
-                            const toPegX = pegPos.x - spikeBasePos.x;
-                            const toPegY = pegPos.y - spikeBasePos.y;
-                            
-                            // Project peg center onto line segment
-                            const projection = toPegX * dirX + toPegY * dirY;
-                            
-                            // Clamp projection to line segment bounds
-                            const clampedProjection = Math.max(0, Math.min(lineLength, projection));
-                            
-                            // Find closest point on line segment to peg center
-                            const closestX = spikeBasePos.x + clampedProjection * dirX;
-                            const closestY = spikeBasePos.y + clampedProjection * dirY;
-                            
-                            // Distance from closest point to peg center
-                            const distX = closestX - pegPos.x;
-                            const distY = closestY - pegPos.y;
-                            const distToPeg = Math.sqrt(distX * distX + distY * distY);
-                            
-                            // If distance is less than peg radius, spike hits peg
-                            if (distToPeg <= pegRadius) {
-                                intersects = true;
-                            }
-                        } else {
-                            // Very short spike - just check if base or tip is inside peg
-                            const distToBase = Math.sqrt(
-                                Math.pow(spikeBasePos.x - pegPos.x, 2) + 
-                                Math.pow(spikeBasePos.y - pegPos.y, 2)
-                            );
-                            const distToTip = Math.sqrt(
-                                Math.pow(spikeTipPos.x - pegPos.x, 2) + 
-                                Math.pow(spikeTipPos.y - pegPos.y, 2)
-                            );
-                            
-                            if (distToBase <= pegRadius || distToTip <= pegRadius) {
-                                intersects = true;
-                            }
-                        }
-                        
-                        if (intersects) {
-                            this.handleSpikePegCollision(spike, peg);
-                            
-                            // Destroy quill shot spikes on impact
-                            if (spike.isQuillShotSpike) {
-                                spike.shouldRemove = true;
-                            }
-                            
-                            break; // Only hit one peg per spike
-                        }
-                    }
-                    
-                    if (spike.isExpired()) {
-                        spike.remove();
-                        this.spikes.splice(i, 1);
-                    }
-                }
-            }
-            
-            // Handle quill shot spike shooting from balls
-            if (this.selectedCharacter?.id === 'spikey') {
-                this.balls.forEach(ball => {
-                    this.spikeyPower.updateQuillShot(ball);
-                });
-            }
             
             this.balls.forEach(ball => {
                 ball.update();
@@ -2576,7 +1854,8 @@ export class Game {
                 this.updateTrajectoryGuide();
             }
             
-            // Collision detection is already called immediately after physics update (above)
+            // Check for collisions between balls and pegs
+            this.checkCollisions();
             
             // Check for ball-bucket catcher collision (manual check for sensors)
             if (this.bucket) {
@@ -2597,6 +1876,7 @@ export class Game {
                             ball.shouldRemove = true;
                             this.ballsRemaining++;
                             this.updateBallsRemainingUI();
+                            console.log('🎯 Ball caught! Balls remaining:', this.ballsRemaining);
                         }
                     }
                 });
@@ -2637,6 +1917,13 @@ export class Game {
                         });
                     }
                     
+                    // Decrement power turns after ball is destroyed (one turn used)
+                    // Only decrement if this ball actually used the power (had it when spawned)
+                    if (ball.usedPower && this.powerTurnsRemaining > 0) {
+                        this.powerTurnsRemaining--;
+                        this.updatePowerTurnsUI();
+                    }
+                    
                     // Disable lucky clover if no more power turns
                     if (this.powerTurnsRemaining === 0) {
                         this.luckyClover.enabled = false;
@@ -2658,52 +1945,11 @@ export class Game {
                 this.purplePegMultiplier = 1.0;
                 this.updateOrangePegMultiplier(); // Update display
                 
-                // Remove pegs hit by green peg spikes (spikes from green pegs, not from balls)
-                // This happens when a shot ends (all balls removed)
-                if (this.greenPegSpikeHitPegs.length > 0) {
-                    this.greenPegSpikeHitPegs.forEach(peg => {
-                        const pegIndex = this.pegs.indexOf(peg);
-                        if (pegIndex !== -1) {
-                            peg.remove();
-                            this.pegs.splice(pegIndex, 1);
-                        }
-                    });
-                    this.greenPegSpikeHitPegs = [];
-                }
-                
                 // Reassign purple peg (previous one will turn blue if not hit)
                 this.assignPurplePeg();
                 
                 // Check if game is over (no balls left or all orange pegs cleared)
                 this.checkGameOver();
-            }
-            
-            // Check if John's queued roulette should be triggered when previous roulette completes
-            // This handles cases where multiple green pegs were hit while a roulette was already active
-            if (this.balls.length === 0 && this.selectedCharacter?.id === 'john' && 
-                this.rouletteQueue.length > 0 && this.powerTurnsRemaining > 0 && 
-                !this.rouletteActive && !this.gamePaused) {
-                // Trigger next queued roulette if previous one completed
-                this.triggerRoulette();
-                // Remove the roulette from queue (it's being played now)
-                this.rouletteQueue.shift();
-            }
-            
-            // Also remove green peg spike hit pegs after 5 seconds if no balls are active
-            if (this.balls.length === 0 && this.greenPegSpikeHitPegs.length > 0) {
-                // Check if any spikes are still active
-                const hasActiveSpikes = this.spikes && this.spikes.length > 0;
-                if (!hasActiveSpikes) {
-                    // All spikes expired, remove pegs hit by green peg spikes
-                    this.greenPegSpikeHitPegs.forEach(peg => {
-                        const pegIndex = this.pegs.indexOf(peg);
-                        if (pegIndex !== -1) {
-                            peg.remove();
-                            this.pegs.splice(pegIndex, 1);
-                        }
-                    });
-                    this.greenPegSpikeHitPegs = [];
-                }
             }
             
             // Render
@@ -2733,12 +1979,6 @@ export class Game {
         // Clean up all walls
         this.walls.forEach(wall => wall.remove());
         this.walls = [];
-        
-        // Clean up all spikes
-        if (this.spikes) {
-            this.spikes.forEach(spike => spike.remove());
-            this.spikes = [];
-        }
         
         // Clean up Three.js resources
         if (this.renderer) {

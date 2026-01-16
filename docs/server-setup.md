@@ -2,23 +2,46 @@
 
 ## Quick Start
 
+### Development Mode (Recommended)
+
+For development, use Vite's dev server which handles ES modules correctly:
+
 1. **Install dependencies:**
    ```bash
    npm install
    ```
 
-2. **Start the server:**
+2. **Start the dev server:**
    ```bash
-   npm run server
+   npm run dev
    ```
    or
    ```bash
-   node server.js
+   npm start
    ```
 
 3. **Access the game:**
    - **Local:** http://localhost:3000
-   - **Network:** http://[YOUR_IP]:3000
+   - **Network:** http://[YOUR_IP]:3000 (shown in console)
+
+### Production Mode
+
+For production, build first then serve:
+
+1. **Build the project:**
+   ```bash
+   npm run build
+   ```
+
+2. **Preview the build:**
+   ```bash
+   npm run preview
+   ```
+
+   Or use the Express server:
+   ```bash
+   npm run server
+   ```
 
 ## Network Access
 

@@ -300,6 +300,7 @@ export class Game {
         // Preload sounds
         await this.audioManager.loadSound('pegHit', `${import.meta.env.BASE_URL}sounds/pegHit`, 'sfx');
         await this.audioManager.loadSound('pegShoot', `${import.meta.env.BASE_URL}sounds/pegShoot`, 'sfx');
+        await this.audioManager.loadSound('pegBucket', `${import.meta.env.BASE_URL}sounds/pegBucket`, 'sfx');
         
         // Resume audio context on first user interaction (browser autoplay policy)
         const resumeAudio = () => {
@@ -916,6 +917,45 @@ export class Game {
             // Ensure purple peg color changes to darker shade
             peg.mesh.material.color.setHex(0x9370db); // Medium purple (darker when hit)
             
+            // Check for green peg (power activation) - purple pegs can also be green
+            if (peg.isGreen) {
+                // Petar the Leprechaun: add 3 turns per green peg hit (others add 1)
+                if (this.selectedCharacter?.id === 'petar') {
+                    this.powerTurnsRemaining += 3;
+                    this.updatePowerTurnsUI();
+                    this.updatePowerDisplay();
+                    
+                    // Show clover emoji at peg position
+                    const pegPos = peg.body.position;
+                    if (this.emojiEffect) {
+                        this.emojiEffect.showEmoji('🍀', pegPos, 0.5);
+                    }
+                } else {
+                    // All other characters: add 1 turn per green peg hit
+                    this.powerTurnsRemaining += 1;
+                    this.updatePowerTurnsUI();
+                }
+                
+                // John the Gunner: trigger roulette immediately when green peg is hit
+                if (this.selectedCharacter?.id === 'john') {
+                    // Trigger roulette immediately (will pause game and show UI)
+                    if (!this.rouletteActive && !this.gamePaused) {
+                        this.triggerRoulette();
+                    } else {
+                        // If roulette is already active, queue it
+                        this.rouletteQueue.push({
+                            timestamp: performance.now() / 1000
+                        });
+                    }
+                }
+                
+                // Spikey the PufferFish: spawn spikes and activate quill shot
+                if (this.selectedCharacter?.id === 'spikey') {
+                    this.spikeyPower.onGreenPegHit(peg);
+                    this.updatePowerDisplay();
+                }
+            }
+            
             // Check for free ball
             if (this.currentShotScore >= this.freeBallThreshold) {
                 const freeBallsAwarded = Math.floor(this.currentShotScore / this.freeBallThreshold);
@@ -950,6 +990,45 @@ export class Game {
                 this.goalProgress++;
                 this.updateGoalUI();
                 this.updateOrangePegMultiplier();
+            }
+            
+            // Check for green peg (power activation)
+            if (peg.isGreen) {
+                // Petar the Leprechaun: add 3 turns per green peg hit (others add 1)
+                if (this.selectedCharacter?.id === 'petar') {
+                    this.powerTurnsRemaining += 3;
+                    this.updatePowerTurnsUI();
+                    this.updatePowerDisplay();
+                    
+                    // Show clover emoji at peg position
+                    const pegPos = peg.body.position;
+                    if (this.emojiEffect) {
+                        this.emojiEffect.showEmoji('🍀', pegPos, 0.5);
+                    }
+                } else {
+                    // All other characters: add 1 turn per green peg hit
+                    this.powerTurnsRemaining += 1;
+                    this.updatePowerTurnsUI();
+                }
+                
+                // John the Gunner: trigger roulette immediately when green peg is hit
+                if (this.selectedCharacter?.id === 'john') {
+                    // Trigger roulette immediately (will pause game and show UI)
+                    if (!this.rouletteActive && !this.gamePaused) {
+                        this.triggerRoulette();
+                    } else {
+                        // If roulette is already active, queue it
+                        this.rouletteQueue.push({
+                            timestamp: performance.now() / 1000
+                        });
+                    }
+                }
+                
+                // Spikey the PufferFish: spawn spikes and activate quill shot
+                if (this.selectedCharacter?.id === 'spikey') {
+                    this.spikeyPower.onGreenPegHit(peg);
+                    this.updatePowerDisplay();
+                }
             }
             
             // Check for free ball
@@ -2076,9 +2155,15 @@ export class Game {
                 } catch (error) {
                     // ERROR in peg.onHit()
                 }
-                
-                // Track this peg as hit by this ball (only if not already tracked)
-                if (!wasAlreadyTracked) {
+            } else {
+                // Peg already hit - play muffled sound at same pitch as last new peg
+                if (this.audioManager) {
+                    this.audioManager.playPegHitAlreadyHit();
+                }
+            }
+            
+            // Track this peg as hit by this ball (only if not already tracked)
+            if (!wasAlreadyTracked) {
                     try {
                         if (!ball.hitPegs) {
                             ball.hitPegs = [];
@@ -2194,7 +2279,6 @@ export class Game {
                         this.petarPower.handleLuckyCloverBounceAlreadyHit(ball, peg);
                     }
                 }
-            }
                 
             // Return early after processing peg collision - don't check walls/bucket
             return;
@@ -2247,6 +2331,11 @@ export class Game {
                     ball.caught = true;
                     this.ballsRemaining++;
                     this.updateBallsRemainingUI();
+                    
+                    // Play bucket catch sound
+                    if (this.audioManager) {
+                        this.audioManager.playSound('pegBucket', { volume: 0.8 });
+                    }
                     
                     // Mark ball for removal
                     ball.shouldRemove = true;
@@ -2694,6 +2783,11 @@ export class Game {
                             ball.shouldRemove = true;
                             this.ballsRemaining++;
                             this.updateBallsRemainingUI();
+                            
+                            // Play bucket catch sound
+                            if (this.audioManager) {
+                                this.audioManager.playSound('pegBucket', { volume: 0.8 });
+                            }
                         }
                     }
                 });

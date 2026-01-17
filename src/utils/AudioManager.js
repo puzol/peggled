@@ -34,6 +34,7 @@ export class AudioManager {
         const secondOctave = firstOctave.map(pitch => pitch * 2);
         this.pegHitScale = [...firstOctave, ...secondOctave];
         this.pegHitIndex = 0; // Current position in scale
+        this.lastPegHitPitch = null; // Track last pitch used for new peg hits
         
         // Initialize Web Audio API (with fallback to HTML5 Audio)
         this.initAudioContext();
@@ -210,6 +211,9 @@ export class AudioManager {
         // Get current pitch from major scale
         const pitch = this.pegHitScale[this.pegHitIndex];
         
+        // Track last pitch for already-hit pegs
+        this.lastPegHitPitch = pitch;
+        
         // Move to next note in scale (wrap around after octave)
         this.pegHitIndex = (this.pegHitIndex + 1) % this.pegHitScale.length;
         
@@ -217,10 +221,85 @@ export class AudioManager {
     }
     
     /**
+     * Play peg hit sound for already-hit pegs
+     * Uses same pitch as last new peg hit, with low-pass filter and reduced volume
+     */
+    playPegHitAlreadyHit() {
+        if (!this.lastPegHitPitch) {
+            // If no pitch tracked yet, use default
+            this.lastPegHitPitch = this.pegHitScale[0];
+        }
+        
+        // Use last pitch, don't increment
+        const pitch = this.lastPegHitPitch;
+        const volume = 0.6 * 0.8; // 20% quieter (0.48 instead of 0.6)
+        
+        if (!this.enabled) return;
+        
+        // Check concurrent sound limit
+        if (this.activeSounds >= this.maxConcurrentSounds) {
+            return;
+        }
+        
+        try {
+            if (this.audioContext && this.audioBuffers.has('pegHit')) {
+                // Use Web Audio API with low-pass filter
+                const { buffer, type } = this.audioBuffers.get('pegHit');
+                const source = this.audioContext.createBufferSource();
+                const gainNode = this.audioContext.createGain();
+                const filterNode = this.audioContext.createBiquadFilter();
+                
+                source.buffer = buffer;
+                source.playbackRate.value = pitch;
+                
+                // Configure low-pass filter (reduces high frequencies, creates muffled sound)
+                filterNode.type = 'lowpass';
+                filterNode.frequency.value = 1500; // Cut-off frequency (lower = more muffled)
+                filterNode.Q.value = 1; // Quality factor
+                
+                const finalVolume = volume * (type === 'music' ? this.musicVolume : this.sfxVolume) * this.masterVolume;
+                gainNode.gain.value = finalVolume;
+                
+                // Connect: source -> filter -> gain -> destination
+                source.connect(filterNode);
+                filterNode.connect(gainNode);
+                gainNode.connect(this.audioContext.destination);
+                
+                source.start(0);
+                
+                this.activeSounds++;
+                source.addEventListener('ended', () => {
+                    this.activeSounds--;
+                }, { once: true });
+            } else if (this.sounds.has('pegHit')) {
+                // Fallback to HTML5 Audio (no filter support, but still play with reduced volume)
+                const { audio, type } = this.sounds.get('pegHit');
+                const audioClone = audio.cloneNode();
+                
+                audioClone.volume = volume * (type === 'music' ? this.musicVolume : this.sfxVolume) * this.masterVolume;
+                audioClone.playbackRate = pitch;
+                
+                this.activeSounds++;
+                audioClone.addEventListener('ended', () => {
+                    this.activeSounds--;
+                }, { once: true });
+                
+                audioClone.play().catch(error => {
+                    console.warn('Failed to play already-hit peg sound', error);
+                    this.activeSounds--;
+                });
+            }
+        } catch (error) {
+            console.warn('Error playing already-hit peg sound', error);
+        }
+    }
+    
+    /**
      * Reset peg hit scale to beginning (call when starting a new shot/turn)
      */
     resetPegHitScale() {
         this.pegHitIndex = 0;
+        this.lastPegHitPitch = null; // Reset last pitch tracking
     }
     
     /**

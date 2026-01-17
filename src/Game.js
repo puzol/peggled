@@ -299,6 +299,7 @@ export class Game {
         
         // Preload sounds
         await this.audioManager.loadSound('pegHit', `${import.meta.env.BASE_URL}sounds/pegHit`, 'sfx');
+        await this.audioManager.loadSound('pegShoot', `${import.meta.env.BASE_URL}sounds/pegShoot`, 'sfx');
         
         // Resume audio context on first user interaction (browser autoplay policy)
         const resumeAudio = () => {
@@ -715,6 +716,11 @@ export class Game {
         // Reset purple peg multiplier
         this.purplePegMultiplier = 1.0;
         
+        // Reset peg hit sound scale for new shot
+        if (this.audioManager) {
+            this.audioManager.resetPegHitScale();
+        }
+        
         // Set lucky clover active state for this ball (from previous green peg hit)
         // This will be set when the ball is spawned
         
@@ -734,6 +740,11 @@ export class Game {
     }
     
     executeShot(spawnX, spawnY, spawnZ, targetX, targetY, originalVelocity) {
+        // Play shoot sound
+        if (this.audioManager) {
+            this.audioManager.playSound('pegShoot', { volume: 1 });
+        }
+        
         // Check if power is available for this shot BEFORE decrementing
         const hasPower = this.powerTurnsRemaining > 0;
         
@@ -888,10 +899,9 @@ export class Game {
             }
             explosionHitPegs.push(peg); // Track for removal
             
-            // Add score for purple peg (before multiplier is activated)
-            const totalMultiplierBefore = this.orangePegMultiplier * this.purplePegMultiplier;
+            // Add score for purple peg (flat 2000 points, no multiplier)
             const purplePoints = 2000;
-            const finalPoints = Math.floor(purplePoints * totalMultiplierBefore);
+            const finalPoints = purplePoints; // No multiplier for purple peg
             this.score += finalPoints;
             this.currentShotScore += finalPoints;
             
@@ -1985,9 +1995,12 @@ export class Game {
         // Calculate score
         const totalMultiplier = this.orangePegMultiplier * this.purplePegMultiplier;
         let points = peg.pointValue;
+        let finalPoints;
         
         if (peg.isPurple) {
+            // Purple peg: flat 2000 points, no multiplier
             points = 2000;
+            finalPoints = points; // No multiplier for purple peg
             this.purplePegMultiplier = 1.25;
             this.updateOrangePegMultiplier();
             peg.mesh.material.color.setHex(0x9370db);
@@ -1996,9 +2009,9 @@ export class Game {
                 this.orangePegMultiplier = Math.min(this.orangePegMultiplier * 2, 10);
                 this.updateOrangePegMultiplier();
             }
+            // Apply multiplier to non-purple pegs
+            finalPoints = Math.floor(points * totalMultiplier);
         }
-        
-        const finalPoints = Math.floor(points * totalMultiplier);
         this.score += finalPoints;
         this.currentShotScore += finalPoints;
         
@@ -2082,11 +2095,9 @@ export class Game {
                         const isPurplePeg = peg === this.purplePeg;
                         
                         if (isPurplePeg) {
-                            // Purple peg hit - worth 2000 points and activates 1.25x multiplier
-                            // Calculate multiplier before activating purple peg multiplier
-                            const totalMultiplierBefore = this.orangePegMultiplier * this.purplePegMultiplier;
+                            // Purple peg hit - worth 2000 points flat (no multiplier) and activates 1.25x multiplier
                             const purplePoints = 2000;
-                            const finalPoints = Math.floor(purplePoints * totalMultiplierBefore);
+                            const finalPoints = purplePoints; // No multiplier for purple peg
                             this.score += finalPoints;
                             this.currentShotScore += finalPoints;
                             

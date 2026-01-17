@@ -15,6 +15,26 @@ export class AudioManager {
         this.musicVolume = 0.7;
         this.enabled = true;
         
+        // Major scale progression for peg hits (2 octaves)
+        // Starting from a lower pitch (0.85) and going up the major scale
+        // Using exact semitone ratios: 2^(semitones/12)
+        // Major scale: Root, Major 2nd (+2), Major 3rd (+4), Perfect 4th (+5), Perfect 5th (+7), Major 6th (+9), Major 7th (+11), Octave (+12)
+        const basePitch = 0.85; // Starting lower than normal (1.0)
+        const firstOctave = [
+            basePitch,                    // Starting lower
+            basePitch * Math.pow(2, 2/12),   // Major 2nd (+2 semitones)
+            basePitch * Math.pow(2, 4/12),   // Major 3rd (+4 semitones)
+            basePitch * Math.pow(2, 5/12),   // Perfect 4th (+5 semitones)
+            basePitch * Math.pow(2, 7/12),   // Perfect 5th (+7 semitones)
+            basePitch * Math.pow(2, 9/12),   // Major 6th (+9 semitones)
+            basePitch * Math.pow(2, 11/12),  // Major 7th (+11 semitones)
+            basePitch * Math.pow(2, 12/12)   // Octave (+12 semitones = 2x)
+        ];
+        // Second octave: multiply first octave by 2
+        const secondOctave = firstOctave.map(pitch => pitch * 2);
+        this.pegHitScale = [...firstOctave, ...secondOctave];
+        this.pegHitIndex = 0; // Current position in scale
+        
         // Initialize Web Audio API (with fallback to HTML5 Audio)
         this.initAudioContext();
     }
@@ -183,12 +203,24 @@ export class AudioManager {
     }
     
     /**
-     * Play peg hit sound with slight pitch variation for variety
+     * Play peg hit sound going up the major scale
+     * Starts from a lower pitch and progresses upward
      */
     playPegHit() {
-        // Random pitch variation between 0.9 and 1.1 for variety
-        const pitch = 0.9 + Math.random() * 0.2;
+        // Get current pitch from major scale
+        const pitch = this.pegHitScale[this.pegHitIndex];
+        
+        // Move to next note in scale (wrap around after octave)
+        this.pegHitIndex = (this.pegHitIndex + 1) % this.pegHitScale.length;
+        
         this.playSound('pegHit', { volume: 0.6, pitch });
+    }
+    
+    /**
+     * Reset peg hit scale to beginning (call when starting a new shot/turn)
+     */
+    resetPegHitScale() {
+        this.pegHitIndex = 0;
     }
     
     /**

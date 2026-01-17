@@ -311,7 +311,7 @@ export class Game {
         document.addEventListener('click', resumeAudio, { once: true });
         document.addEventListener('keydown', resumeAudio, { once: true });
         
-        // Load level
+        // Load level (music will start automatically when level loads)
         // Use import.meta.env.BASE_URL to handle base path in production (GitHub Pages)
         await this.loadLevel(`${import.meta.env.BASE_URL}levels/level1.json`);
         
@@ -1574,6 +1574,11 @@ export class Game {
         this.luckyClover.reset();
         this.luckyClover.enabled = false;
         
+        // Stop all music tracks (will restart when new game begins with only track 1)
+        if (this.audioManager) {
+            this.audioManager.stopAllMusic();
+        }
+        
         // Update UI
         this.updateBallsRemainingUI();
         this.updateScoreUI();
@@ -1665,6 +1670,11 @@ export class Game {
         this.luckyClover.reset();
         this.luckyClover.enabled = false;
         
+        // Stop all music tracks (will restart when new game begins with only track 1)
+        if (this.audioManager) {
+            this.audioManager.stopAllMusic();
+        }
+        
         // Update UI
         this.updateBallsRemainingUI();
         this.updateScoreUI();
@@ -1686,6 +1696,7 @@ export class Game {
         
         // Determine multiplier based on percentage
         // Thresholds are exact: 40% = 2x, 60% = 3x, 80% = 5x, 90% = 10x
+        let previousMultiplier = this.orangePegMultiplier;
         if (percentage >= 90) {
             this.orangePegMultiplier = 8;
         } else if (percentage >= 80) {
@@ -1696,6 +1707,17 @@ export class Game {
             this.orangePegMultiplier = 2;
         } else {
             this.orangePegMultiplier = 1.0;
+        }
+        
+        // Update music layers based on multiplier
+        // Track 1: Always playing (base layer)
+        // Track 2: Unmutes at 2x (40%)
+        // Track 3: Unmutes at 3x (60%)
+        // Track 4: Unmutes at 5x (80%)
+        if (this.audioManager && previousMultiplier !== this.orangePegMultiplier) {
+            this.audioManager.setTrackMuted('PilotsOgg2', this.orangePegMultiplier < 2);
+            this.audioManager.setTrackMuted('PilotsOgg3', this.orangePegMultiplier < 3);
+            this.audioManager.setTrackMuted('PilotsOgg4', this.orangePegMultiplier < 5);
         }
         
         // Clamp percentage for display (shouldn't exceed 100%)
@@ -1868,6 +1890,16 @@ export class Game {
             
             // Initialize orange peg multiplier tracker
             this.updateOrangePegMultiplier();
+            
+            // Start layered music tracks (fully restart for new round)
+            // Track 1 starts unmuted, tracks 2-4 start muted
+            if (this.audioManager) {
+                const musicTracks = ['PilotsOgg1', 'PilotsOgg2', 'PilotsOgg3', 'PilotsOgg4'];
+                // Stop all existing music first to ensure clean restart
+                this.audioManager.stopAllMusic();
+                // Load and start all tracks (track 1 unmuted, tracks 2-4 muted)
+                this.audioManager.loadLayeredMusic(musicTracks, `${import.meta.env.BASE_URL}sounds/`);
+            }
         } catch (error) {
             // Failed to load level
         }
@@ -2152,6 +2184,45 @@ export class Game {
                     if (this.audioManager) {
                         this.audioManager.playPegHit();
                     }
+                    
+                    // Check for green peg (power activation) - only on first hit
+                    if (peg.isGreen) {
+                        // Petar the Leprechaun: add 3 turns per green peg hit (others add 1)
+                        if (this.selectedCharacter?.id === 'petar') {
+                            this.powerTurnsRemaining += 3;
+                            this.updatePowerTurnsUI();
+                            this.updatePowerDisplay();
+                            
+                            // Show clover emoji at peg position
+                            const pegPos = peg.body.position;
+                            if (this.emojiEffect) {
+                                this.emojiEffect.showEmoji('🍀', pegPos, 0.5);
+                            }
+                        } else {
+                            // All other characters: add 1 turn per green peg hit
+                            this.powerTurnsRemaining += 1;
+                            this.updatePowerTurnsUI();
+                        }
+                        
+                        // John the Gunner: trigger roulette immediately when green peg is hit
+                        if (this.selectedCharacter?.id === 'john') {
+                            // Trigger roulette immediately (will pause game and show UI)
+                            if (!this.rouletteActive && !this.gamePaused) {
+                                this.triggerRoulette();
+                            } else {
+                                // If roulette is already active, queue it
+                                this.rouletteQueue.push({
+                                    timestamp: performance.now() / 1000
+                                });
+                            }
+                        }
+                        
+                        // Spikey the PufferFish: spawn spikes and activate quill shot
+                        if (this.selectedCharacter?.id === 'spikey') {
+                            this.spikeyPower.onGreenPegHit(peg);
+                            this.updatePowerDisplay();
+                        }
+                    }
                 } catch (error) {
                     // ERROR in peg.onHit()
                 }
@@ -2225,45 +2296,6 @@ export class Game {
                         this.currentShotScore = this.currentShotScore % this.freeBallThreshold;
                         this.updateBallsRemainingUI();
                         this.updateFreeBallMeter();
-                    }
-                    
-                    // Check for green peg (power activation)
-                    if (peg.isGreen) {
-                        // Petar the Leprechaun: add 3 turns per green peg hit (others add 1)
-                        if (this.selectedCharacter?.id === 'petar') {
-                            this.powerTurnsRemaining += 3;
-                            this.updatePowerTurnsUI();
-                            this.updatePowerDisplay();
-                            
-                            // Show clover emoji at peg position
-                            const pegPos = peg.body.position;
-                            if (this.emojiEffect) {
-                                this.emojiEffect.showEmoji('🍀', pegPos, 0.5);
-                            }
-                        } else {
-                            // All other characters: add 1 turn per green peg hit
-                            this.powerTurnsRemaining += 1;
-                            this.updatePowerTurnsUI();
-                        }
-                        
-                        // John the Gunner: trigger roulette immediately when green peg is hit
-                        if (this.selectedCharacter?.id === 'john') {
-                            // Trigger roulette immediately (will pause game and show UI)
-                            if (!this.rouletteActive && !this.gamePaused) {
-                                this.triggerRoulette();
-                            } else {
-                                // If roulette is already active, queue it
-                                this.rouletteQueue.push({
-                                    timestamp: performance.now() / 1000
-                                });
-                            }
-                        }
-                        
-                        // Spikey the PufferFish: spawn spikes and activate quill shot
-                        if (this.selectedCharacter?.id === 'spikey') {
-                            this.spikeyPower.onGreenPegHit(peg);
-                            this.updatePowerDisplay();
-                        }
                     }
                     
                     // Lucky clover perk handling (every 3rd hit bounces with 75% momentum)

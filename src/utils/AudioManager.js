@@ -15,10 +15,15 @@ export class AudioManager {
         this.musicVolume = 0.25; // 20% quieter than 0.7 (0.7 * 0.8 = 0.56)
         this.enabled = true;
         
-        // Layered music tracks
-        this.musicTracks = new Map(); // Store music track sources (for Web Audio API)
-        this.musicTracksHTML5 = new Map(); // Store HTML5 Audio elements (fallback)
-        this.fadeIntervals = new Map(); // Store fade intervals for HTML5 Audio tracks
+        // Global music state object
+        this.activeMusic = {
+            trackName: null, // e.g., "track1"
+            tracks: [], // Array of {name, type, source/gainNode/audio, buffer, muted, playing}
+            loaded: false
+        };
+        
+        // Fade intervals for HTML5 Audio (stored by track name)
+        this.fadeIntervals = new Map();
         
         // Major scale progression for peg hits (2 octaves)
         // Starting from a lower pitch (0.85) and going up the major scale
@@ -56,7 +61,7 @@ export class AudioManager {
                 }
             }
         } catch (error) {
-            console.warn('Web Audio API not available, falling back to HTML5 Audio');
+            // Web Audio API not available, falling back to HTML5 Audio
         }
     }
     
@@ -124,7 +129,7 @@ export class AudioManager {
                 this.sounds.set(name, { audio, type });
             }
         } catch (error) {
-            console.warn(`Failed to load sound: ${name}`, error);
+            // Failed to load sound
         }
     }
     
@@ -184,6 +189,11 @@ export class AudioManager {
                 source.addEventListener('ended', () => {
                     this.activeSounds--;
                 }, { once: true });
+                
+                // Return source so it can be stopped if needed (for looping sounds)
+                if (loop) {
+                    return source;
+                }
             } else if (this.sounds.has(name)) {
                 // Use HTML5 Audio fallback
                 const { audio, type } = this.sounds.get(name);
@@ -198,14 +208,19 @@ export class AudioManager {
                     this.activeSounds--;
                 }, { once: true });
                 
-                audioClone.play().catch(error => {
-                    console.warn(`Failed to play sound: ${name}`, error);
+                audioClone.play().catch(() => {
                     this.activeSounds--;
                 });
+                
+                // Return audio element so it can be stopped if needed
+                if (loop) {
+                    return audioClone;
+                }
             }
         } catch (error) {
-            console.warn(`Error playing sound: ${name}`, error);
+            // Error playing sound
         }
+        return null;
     }
     
     /**
@@ -289,13 +304,12 @@ export class AudioManager {
                     this.activeSounds--;
                 }, { once: true });
                 
-                audioClone.play().catch(error => {
-                    console.warn('Failed to play already-hit peg sound', error);
+                audioClone.play().catch(() => {
                     this.activeSounds--;
                 });
             }
         } catch (error) {
-            console.warn('Error playing already-hit peg sound', error);
+            // Error playing already-hit peg sound
         }
     }
     
@@ -351,104 +365,163 @@ export class AudioManager {
     /**
      * Load and start playing layered music tracks
      * All tracks start playing simultaneously, but tracks 2-4 start muted
+     * Only starts tracks if they're not already playing
      * @param {Array} trackNames - Array of track names (e.g., ['PilotsOgg1', 'PilotsOgg2', ...])
      * @param {string} basePath - Base path to track files (without extension)
      */
-    async loadLayeredMusic(trackNames, basePath) {
-        const loadPromises = trackNames.map(name => 
-            this.loadSound(name, `${basePath}${name}`, 'music')
+    /**
+     * Load music tracks from track folder (e.g., sounds/tracks/track1/)
+     * Mounts all tracks paused and muted (except first track)
+     * @param {string} trackName - Track folder name (e.g., "track1")
+     * @param {string} basePath - Base path to sounds folder
+     */
+    async loadMusicTracks(trackName, basePath) {
+        if (!this.enabled) return;
+        
+        // If tracks are already loaded for this track, don't reload (prevents overlap)
+        if (this.activeMusic.loaded && this.activeMusic.trackName === trackName) {
+            return;
+        }
+        
+        // Destroy existing tracks if any (only happens on level load or track change)
+        this.destroyMusicTracks();
+        
+        // Track file names (assuming they're named PilotsOgg1, PilotsOgg2, etc.)
+        const trackFiles = ['PilotsOgg1', 'PilotsOgg2', 'PilotsOgg3', 'PilotsOgg4'];
+        const trackPath = `${basePath}tracks/${trackName}/`;
+        
+        // Load all track buffers
+        const loadPromises = trackFiles.map(name => 
+            this.loadSound(name, `${trackPath}${name}`, 'music')
         );
         await Promise.all(loadPromises);
         
-        // Start all tracks playing (they'll loop)
-        trackNames.forEach((name, index) => {
-            // First track (index 0) starts unmuted, others start muted
-            const startMuted = index > 0;
-            this.startMusicTrack(name, startMuted);
+        // Mount all tracks paused and muted (except first)
+        this.activeMusic.trackName = trackName;
+        this.activeMusic.tracks = [];
+        
+        for (let i = 0; i < trackFiles.length; i++) {
+            const name = trackFiles[i];
+            const isFirstTrack = i === 0;
+            const muted = !isFirstTrack; // First track unmuted, others muted
+            
+            // Mount track (create audio source but don't start playing yet)
+            const trackData = await this.mountMusicTrack(name, muted);
+            if (trackData) {
+                this.activeMusic.tracks.push({
+                    name,
+                    ...trackData,
+                    muted,
+                    playing: false
+                });
+            }
+        }
+        
+        this.activeMusic.loaded = true;
+    }
+    
+    /**
+     * Mount a music track (create audio source but don't start playing)
+     * @param {string} name - Track identifier
+     * @param {boolean} muted - Whether to start muted
+     * @returns {Object|null} Track data object or null if failed
+     */
+    async mountMusicTrack(name, muted = true) {
+        if (!this.enabled) return null;
+        
+        try {
+            if (this.audioContext && this.audioBuffers.has(name)) {
+                // Web Audio API
+                const { buffer } = this.audioBuffers.get(name);
+                const gainNode = this.audioContext.createGain();
+                const finalVolume = muted ? 0 : (this.musicVolume * this.masterVolume);
+                gainNode.gain.value = finalVolume;
+                gainNode.connect(this.audioContext.destination);
+                
+                return { type: 'webaudio', gainNode, buffer, source: null };
+            } else if (this.sounds.has(name)) {
+                // HTML5 Audio fallback
+                const { audio } = this.sounds.get(name);
+                const audioClone = audio.cloneNode(true);
+                audioClone.volume = muted ? 0 : (this.musicVolume * this.masterVolume);
+                audioClone.loop = true;
+                audioClone.muted = muted;
+                audioClone.pause(); // Start paused
+                
+                return { type: 'html5', audio: audioClone };
+            }
+        } catch (error) {
+            // Error mounting track
+        }
+        return null;
+    }
+    
+    /**
+     * Play all mounted music tracks (called when pegs are generated)
+     */
+    playMusicTracks() {
+        if (!this.enabled || !this.activeMusic.loaded) return;
+        
+        this.activeMusic.tracks.forEach((track, index) => {
+            if (track.playing) return; // Already playing
+            
+            try {
+                if (track.type === 'webaudio') {
+                    // Web Audio API - create and start source
+                    const source = this.audioContext.createBufferSource();
+                    source.buffer = track.buffer;
+                    source.loop = true;
+                    source.connect(track.gainNode);
+                    source.start(0);
+                    track.source = source;
+                    track.playing = true;
+                } else if (track.type === 'html5') {
+                    // HTML5 Audio - play
+                    track.audio.currentTime = 0; // Start from beginning
+                    track.audio.play().catch(() => {
+                        // Failed to play track
+                    });
+                    track.playing = true;
+                }
+            } catch (error) {
+                // Error playing track
+            }
         });
     }
     
     /**
-     * Start a music track playing (looping)
-     * @param {string} name - Track identifier
-     * @param {boolean} muted - Whether to start muted
-     */
-    startMusicTrack(name, muted = false) {
-        if (!this.enabled) return;
-        
-        try {
-            if (this.audioContext && this.audioBuffers.has(name)) {
-                // Use Web Audio API for looping
-                const { buffer } = this.audioBuffers.get(name);
-                
-                const createSource = () => {
-                    const source = this.audioContext.createBufferSource();
-                    const gainNode = this.audioContext.createGain();
-                    
-                    source.buffer = buffer;
-                    source.loop = true;
-                    
-                    const finalVolume = muted ? 0 : (this.musicVolume * this.masterVolume);
-                    gainNode.gain.value = finalVolume;
-                    
-                    source.connect(gainNode);
-                    gainNode.connect(this.audioContext.destination);
-                    
-                    source.start(0);
-                    
-                    return { source, gainNode };
-                };
-                
-                // Create initial source
-                const { source, gainNode } = createSource();
-                this.musicTracks.set(name, { source, gainNode, buffer, createSource });
-            } else if (this.sounds.has(name)) {
-                // Use HTML5 Audio fallback
-                const { audio } = this.sounds.get(name);
-                const audioClone = audio.cloneNode();
-                
-                audioClone.volume = muted ? 0 : (this.musicVolume * this.masterVolume);
-                audioClone.loop = true;
-                audioClone.muted = muted;
-                
-                this.musicTracksHTML5.set(name, audioClone);
-                
-                audioClone.play().catch(error => {
-                    console.warn(`Failed to start music track: ${name}`, error);
-                });
-            }
-        } catch (error) {
-            console.warn(`Error starting music track: ${name}`, error);
-        }
-    }
-    
-    /**
-     * Set mute state for a specific music track
+     * Update mute state for a specific track
      * @param {string} name - Track identifier
      * @param {boolean} muted - Whether to mute the track
      */
-    setTrackMuted(name, muted) {
-        const targetVolume = this.musicVolume * this.masterVolume;
-        const fadeDuration = 0.3; // 0.3 seconds fade-in
+    setMusicTrackMuted(name, muted) {
+        if (!this.activeMusic.loaded) return;
         
-        if (this.musicTracks.has(name)) {
-            // Web Audio API
-            const { gainNode } = this.musicTracks.get(name);
-            if (gainNode) {
-                if (muted) {
-                    // Instant mute (no fade-out)
-                    gainNode.gain.value = 0;
-                } else {
-                    // Fade-in from 0 to target volume over 0.3 seconds
+        const track = this.activeMusic.tracks.find(t => t.name === name);
+        if (!track) return;
+        
+        const wasMuted = track.muted;
+        track.muted = muted;
+        
+        const targetVolume = this.musicVolume * this.masterVolume;
+        const fadeDuration = 0.3;
+        const isTransitioningToUnmuted = wasMuted && !muted;
+        
+        if (track.type === 'webaudio') {
+            if (muted) {
+                track.gainNode.gain.value = 0;
+            } else {
+                if (isTransitioningToUnmuted) {
                     const currentTime = this.audioContext.currentTime;
-                    gainNode.gain.setValueAtTime(0, currentTime);
-                    gainNode.gain.linearRampToValueAtTime(targetVolume, currentTime + fadeDuration);
+                    const currentGain = track.gainNode.gain.value;
+                    track.gainNode.gain.cancelScheduledValues(currentTime);
+                    track.gainNode.gain.setValueAtTime(currentGain, currentTime);
+                    track.gainNode.gain.linearRampToValueAtTime(targetVolume, currentTime + fadeDuration);
+                } else {
+                    track.gainNode.gain.value = targetVolume;
                 }
             }
-        } else if (this.musicTracksHTML5.has(name)) {
-            // HTML5 Audio fallback
-            const audio = this.musicTracksHTML5.get(name);
-            
+        } else if (track.type === 'html5') {
             // Clear any existing fade interval for this track
             if (this.fadeIntervals.has(name)) {
                 clearInterval(this.fadeIntervals.get(name));
@@ -456,81 +529,55 @@ export class AudioManager {
             }
             
             if (muted) {
-                // Instant mute (no fade-out)
-                audio.muted = true;
-                audio.volume = 0;
+                track.audio.muted = true;
+                track.audio.volume = 0;
             } else {
-                // Fade-in using manual volume adjustment
-                audio.muted = false;
-                const startTime = performance.now();
-                const startVolume = 0; // Always fade from 0
-                const fadeInterval = setInterval(() => {
-                    const elapsed = (performance.now() - startTime) / 1000; // Convert to seconds
-                    if (elapsed >= fadeDuration) {
-                        audio.volume = targetVolume;
-                        clearInterval(fadeInterval);
-                        this.fadeIntervals.delete(name);
-                    } else {
-                        // Linear interpolation from 0 to targetVolume
-                        const progress = elapsed / fadeDuration;
-                        audio.volume = startVolume + (targetVolume - startVolume) * progress;
-                    }
-                }, 16); // ~60fps updates
-                
-                // Store interval for cleanup
-                this.fadeIntervals.set(name, fadeInterval);
-            }
-        }
-    }
-    
-    /**
-     * Get mute state for a specific music track
-     * @param {string} name - Track identifier
-     * @returns {boolean} Whether the track is muted
-     */
-    getTrackMuted(name) {
-        if (this.musicTracks.has(name)) {
-            const { gainNode } = this.musicTracks.get(name);
-            return gainNode ? gainNode.gain.value === 0 : true;
-        } else if (this.musicTracksHTML5.has(name)) {
-            const audio = this.musicTracksHTML5.get(name);
-            return audio.muted || audio.volume === 0;
-        }
-        return true;
-    }
-    
-    /**
-     * Stop all music tracks
-     */
-    stopAllMusic() {
-        // Clear all fade intervals
-        this.fadeIntervals.forEach((interval) => {
-            clearInterval(interval);
-        });
-        this.fadeIntervals.clear();
-        
-        // Stop Web Audio API tracks
-        this.musicTracks.forEach((track, name) => {
-            try {
-                if (track.source) {
-                    track.source.stop();
+                track.audio.muted = false;
+                if (isTransitioningToUnmuted) {
+                    // Fade-in for HTML5
+                    const startTime = performance.now();
+                    const fadeInterval = setInterval(() => {
+                        const elapsed = (performance.now() - startTime) / 1000;
+                        if (elapsed >= fadeDuration) {
+                            track.audio.volume = targetVolume;
+                            clearInterval(fadeInterval);
+                            this.fadeIntervals.delete(name);
+                        } else {
+                            track.audio.volume = (elapsed / fadeDuration) * targetVolume;
+                        }
+                    }, 16);
+                    this.fadeIntervals.set(name, fadeInterval);
+                } else {
+                    track.audio.volume = targetVolume;
                 }
-            } catch (error) {
-                // Source might already be stopped
             }
-        });
-        this.musicTracks.clear();
+        }
+    }
+    
+    /**
+     * Destroy all music tracks (only called on level load)
+     */
+    destroyMusicTracks() {
+        if (!this.activeMusic.loaded) return;
         
-        // Stop HTML5 Audio tracks
-        this.musicTracksHTML5.forEach((audio, name) => {
+        this.activeMusic.tracks.forEach(track => {
             try {
-                audio.pause();
-                audio.currentTime = 0;
+                if (track.type === 'webaudio' && track.source) {
+                    track.source.stop();
+                    track.gainNode.disconnect();
+                } else if (track.type === 'html5') {
+                    track.audio.pause();
+                    track.audio.currentTime = 0;
+                    track.audio.load();
+                }
             } catch (error) {
                 // Ignore errors
             }
         });
-        this.musicTracksHTML5.clear();
+        
+        this.activeMusic.trackName = null;
+        this.activeMusic.tracks = [];
+        this.activeMusic.loaded = false;
     }
 }
 

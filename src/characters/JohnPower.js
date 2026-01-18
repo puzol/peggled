@@ -14,8 +14,6 @@ export class JohnPower {
     onGreenPegHit(peg) {
         if (typeof this.game.triggerRoulette === 'function') {
             this.game.triggerRoulette();
-        } else {
-            console.error('❌ triggerRoulette method is missing!');
         }
     }
 

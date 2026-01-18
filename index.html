@@ -134,6 +134,28 @@
             pointer-events: none;
         }
 
+        #rocket-fuel-gauge {
+            position: absolute;
+            top: 108px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 200px;
+            height: 8px;
+            background: rgba(0, 0, 0, 0.6);
+            border: 2px solid rgba(255, 255, 255, 0.8);
+            border-radius: 4px;
+            overflow: hidden;
+            pointer-events: none;
+            display: none;
+        }
+
+        #rocket-fuel-gauge-fill {
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, #ff6b6b, #ffa500, #ffeb3b);
+            transition: width 0.1s linear;
+        }
+
         #next-power-display {
             position: absolute;
             top: 72px;
@@ -505,6 +527,9 @@
                 </div>
                 <div id="multiplier-value">1.0x</div>
                 <div id="current-power-display"></div>
+                <div id="rocket-fuel-gauge">
+                    <div id="rocket-fuel-gauge-fill"></div>
+                </div>
                 <div id="next-power-display"></div>
                 <button id="play-again-button">Play Again</button>
                 <button id="play-again-new-seed-button">Play Again with New Seed</button>

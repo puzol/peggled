@@ -13,7 +13,6 @@ export class LevelLoader {
             const levelData = await response.json();
             return levelData;
         } catch (error) {
-            console.error('Error loading level:', error);
             throw error;
         }
     }
@@ -35,14 +34,12 @@ export class LevelLoader {
      */
     static validateLevel(levelData) {
         if (!levelData || !Array.isArray(levelData.pegs)) {
-            console.error('Invalid level data: missing pegs array');
             return false;
         }
 
         // Validate each peg has required fields
         for (const peg of levelData.pegs) {
             if (typeof peg.x !== 'number' || typeof peg.y !== 'number') {
-                console.error('Invalid peg: missing x or y coordinates');
                 return false;
             }
         }

@@ -55,9 +55,6 @@ export class PhysicsWorld {
         const top = 4.5;
         const bottom = -4.5;
         
-        console.log('=== WALL BOUNDARIES ===');
-        console.log('Left wall:', left, 'Right wall:', right, 'Ceiling:', top, 'Bottom:', bottom);
-        
         // Store wall bodies for collision detection
         this.wallBodies = [];
         
@@ -107,8 +104,6 @@ export class PhysicsWorld {
         groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
         groundBody.position.set(0, -10, 0);
         this.world.addBody(groundBody);
-        
-        console.log('Wall bodies created:', this.wallBodies.length);
     }
 
     getBallMaterial() {

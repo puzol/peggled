@@ -31,12 +31,6 @@ export class LuckyClover {
                 
                 // Apply bounce in current direction with 75% of original speed
                 ball.body.velocity.set(dirX * bounceSpeed, dirY * bounceSpeed, 0);
-                
-                console.log('🍀 LUCKY CLOVER! Bounce applied:', { 
-                    hitCount: this.hitCount, 
-                    originalSpeed: originalSpeed.toFixed(2),
-                    bounceSpeed: bounceSpeed.toFixed(2) 
-                });
                 return true;
             }
         }

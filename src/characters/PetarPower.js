@@ -21,8 +21,6 @@ export class PetarPower {
         const pegPos = peg.body.position;
         if (this.game.emojiEffect) {
             this.game.emojiEffect.showEmoji('🍀', { x: pegPos.x, y: pegPos.y, z: pegPos.z || 0 }, 0.5);
-        } else {
-            console.error('❌ emojiEffect is missing!');
         }
     }
 
@@ -58,16 +56,8 @@ export class PetarPower {
                 const pegPos = peg.body.position;
                 if (this.game.emojiEffect) {
                     this.game.emojiEffect.showEmoji('🍀', { x: pegPos.x, y: pegPos.y, z: pegPos.z || 0 }, 0.5);
-                } else {
-                    console.error('❌ emojiEffect is missing!');
                 }
                 return true;
-            } else {
-                console.error('❌ Lucky clover: ball.originalVelocity is missing!', {
-                    pegId: peg.body.id,
-                    ballId: ball.body.id,
-                    hasBall: !!ball
-                });
             }
         }
         return false;
@@ -95,7 +85,6 @@ export class PetarPower {
                 const roundedVZ = this.game.roundToDecimals(bounceVelZ);
 
                 ball.body.velocity.set(roundedVX, roundedVY, roundedVZ);
-                console.log('🍀 Lucky clover bounce (already hit peg)!');
 
                 const pegPos = peg.body.position;
                 if (this.game.emojiEffect) {

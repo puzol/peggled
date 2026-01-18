@@ -28,6 +28,7 @@ export class Ball {
         this.mesh = new THREE.Mesh(geometry, material);
         this.mesh.position.set(position.x, position.y, position.z);
         // CircleGeometry is already in XY plane, perfect for 2D view
+        this.mesh.renderOrder = 0; // Ensure ball renders after rocket (rocket has renderOrder -1)
         
         this.scene.add(this.mesh);
     }

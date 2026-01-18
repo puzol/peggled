@@ -15,6 +15,7 @@ import { AudioManager } from './utils/AudioManager.js';
 import { PetarPower } from './characters/PetarPower.js';
 import { JohnPower } from './characters/JohnPower.js';
 import { SpikeyPower } from './characters/SpikeyPower.js';
+import { BuzzPower } from './characters/BuzzPower.js';
 
 // Main game controller
 export class Game {
@@ -73,6 +74,8 @@ export class Game {
         this.powerTurnsElement = container.querySelector('#power-turns');
         this.currentPowerDisplay = container.querySelector('#current-power-display');
         this.nextPowerDisplay = container.querySelector('#next-power-display');
+        this.rocketFuelGauge = container.querySelector('#rocket-fuel-gauge');
+        this.rocketFuelGaugeFill = container.querySelector('#rocket-fuel-gauge-fill');
         this.freeBallMeterFill = container.querySelector('#free-ball-meter-fill');
         this.multiplierTrackerFill = container.querySelector('#multiplier-tracker-fill');
         this.multiplierValue = container.querySelector('#multiplier-value');
@@ -122,6 +125,12 @@ export class Game {
                 name: 'Spikey the PufferFish',
                 power: 'Spike Power',
                 powerDescription: 'On green peg hit, spawn 8 spikes around the peg. Powers up next shot with quill shot (shoots spikes from ball).'
+            },
+            {
+                id: 'buzz',
+                name: 'Buzz, the Rocketeer',
+                power: 'Rocket Power',
+                powerDescription: 'On green peg hit, adds a rocket power shot. Click to activate thrust, giving control of the ball.'
             }
         ];
         
@@ -129,6 +138,7 @@ export class Game {
         this.petarPower = new PetarPower(this);
         this.johnPower = new JohnPower(this);
         this.spikeyPower = new SpikeyPower(this);
+        this.buzzPower = new BuzzPower(this);
         
         // John the Gunner power system
         this.gamePaused = false;
@@ -139,11 +149,15 @@ export class Game {
         this.rapidShotQueue = []; // Queue for rapid shot balls
         this.rapidShotDelay = 0.3; // Delay between rapid shots (seconds)
         this.lastRapidShotTime = 0;
+        this.musicStarted = false; // Track if music tracks have been started (happens when pegs are generated)
         
         // Spikey the PufferFish power system
         this.quillShotActive = false; // Flag for quill shot power
         this.spikes = []; // Array to track active spikes
         this.greenPegSpikeHitPegs = []; // Track pegs hit by green peg spikes (not from ball)
+        
+        // Buzz the Rocketeer power system
+        this.rocketActive = false; // Flag for rocket power
         
         // Perks
         this.luckyClover = new LuckyClover();
@@ -171,6 +185,13 @@ export class Game {
                 this.copySeedToClipboard();
             });
         }
+        
+        // Initialize audio manager once (not in init() to prevent recreation)
+        this.audioManager = new AudioManager();
+        
+        // Load music tracks once on page load (mounts all tracks paused and muted except first)
+        // This happens once when the game is created, not every time init() is called
+        this.loadMusicTracksOnce();
     }
     
     copySeedToClipboard() {
@@ -274,12 +295,29 @@ export class Game {
         if (characterSelector) {
             characterSelector.style.display = 'flex';
         }
+        
+        // Mute tracks 2-4 when showing character selector (keep track 1 playing)
+        if (this.audioManager) {
+            this.audioManager.setMusicTrackMuted('PilotsOgg2', true);
+            this.audioManager.setMusicTrackMuted('PilotsOgg3', true);
+            this.audioManager.setMusicTrackMuted('PilotsOgg4', true);
+        }
     }
     
     hideCharacterSelector() {
         const characterSelector = document.querySelector('#character-selector');
         if (characterSelector) {
             characterSelector.style.display = 'none';
+        }
+    }
+    
+    /**
+     * Load music tracks once on page load (called from constructor)
+     * This ensures tracks are only loaded once, not every time init() is called
+     */
+    async loadMusicTracksOnce() {
+        if (this.audioManager) {
+            await this.audioManager.loadMusicTracks('track1', `${import.meta.env.BASE_URL}sounds/`);
         }
     }
 
@@ -294,13 +332,18 @@ export class Game {
         // Initialize emoji effects (needs scene, camera, renderer)
         this.emojiEffect = new EmojiEffect(this.scene, this.camera, this.renderer);
         
-        // Initialize audio manager
-        this.audioManager = new AudioManager();
-        
-        // Preload sounds
-        await this.audioManager.loadSound('pegHit', `${import.meta.env.BASE_URL}sounds/pegHit`, 'sfx');
-        await this.audioManager.loadSound('pegShoot', `${import.meta.env.BASE_URL}sounds/pegShoot`, 'sfx');
-        await this.audioManager.loadSound('pegBucket', `${import.meta.env.BASE_URL}sounds/pegBucket`, 'sfx');
+        // Audio manager is created in constructor, so it already exists
+        // Preload sounds (only if not already loaded)
+        if (this.audioManager) {
+            await this.audioManager.loadSound('pegHit', `${import.meta.env.BASE_URL}sounds/pegHit`, 'sfx');
+            await this.audioManager.loadSound('pegShoot', `${import.meta.env.BASE_URL}sounds/pegShoot`, 'sfx');
+            await this.audioManager.loadSound('pegBucket', `${import.meta.env.BASE_URL}sounds/pegBucket`, 'sfx');
+            await this.audioManager.loadSound('pegRoulette', `${import.meta.env.BASE_URL}sounds/pegRoulette`, 'sfx');
+            await this.audioManager.loadSound('pegSpike', `${import.meta.env.BASE_URL}sounds/pegSpike`, 'sfx');
+            await this.audioManager.loadSound('pegSpikeSmall', `${import.meta.env.BASE_URL}sounds/pegSpikeSmall`, 'sfx');
+            await this.audioManager.loadSound('pegExplosion', `${import.meta.env.BASE_URL}sounds/pegExplosion`, 'sfx');
+            await this.audioManager.loadSound('pegThrust', `${import.meta.env.BASE_URL}sounds/pegThrust`, 'sfx');
+        }
         
         // Resume audio context on first user interaction (browser autoplay policy)
         const resumeAudio = () => {
@@ -490,9 +533,90 @@ export class Game {
             this.handleMouseMove(event);
         });
         
+        // Use mousedown for bomb detonation and rocket thrust (immediate response)
+        this.canvas.addEventListener('mousedown', (event) => {
+            this.handleMouseDown(event);
+        });
+        
+        // Use mouseup for stopping rocket thrust (hold mode)
+        this.canvas.addEventListener('mouseup', (event) => {
+            this.handleMouseUp(event);
+        });
+        
+        // Use click for shooting new ball
         this.canvas.addEventListener('click', (event) => {
             this.handleClick(event);
         });
+    }
+    
+    handleMouseDown(event) {
+        // Check if there's an active bomb to manually detonate
+        if (this.bombs && this.bombs.length > 0 && this.balls.length === 0) {
+            // Manually detonate the first active bomb
+            const bomb = this.bombs[0];
+            if (bomb && !bomb.exploded) {
+                this.explodeBomb(bomb);
+                event.preventDefault(); // Prevent click event from firing
+                return;
+            }
+        }
+        
+        // Check if there's a rocket ball - if so, handle rocket thrust instead of shooting
+        const rocketBall = this.balls.find(ball => ball.isRocket && ball.rocketFuelRemaining > 0);
+        if (rocketBall && !rocketBall.rocketThrustActive) {
+            // Activate thrust on mousedown (hold mode)
+                // Reduce ball velocity to 1 when activating thrust (for better control)
+                const currentVel = rocketBall.body.velocity;
+                const currentSpeed = Math.sqrt(currentVel.x * currentVel.x + currentVel.y * currentVel.y);
+                if (currentSpeed > 1.0) {
+                    // Normalize and scale to 1
+                    const scale = 1.0 / currentSpeed;
+                    rocketBall.body.velocity.set(currentVel.x * scale, currentVel.y * scale, 0);
+                    // Update originalVelocity to match current velocity so bounces are based on actual speed
+                    rocketBall.originalVelocity = { x: rocketBall.body.velocity.x, y: rocketBall.body.velocity.y, z: 0 };
+                }
+            
+            // Activate thrust
+            rocketBall.rocketThrustActive = true;
+            rocketBall.rocketThrustStartTime = performance.now() / 1000;
+            rocketBall.rocketThrustPower = 1.0; // Start at full power (no ramp up)
+            // Play thrust sound (looping)
+            if (this.audioManager) {
+                rocketBall.rocketThrustSound = this.audioManager.playSound('pegThrust', { volume: 0.7, loop: true });
+            }
+            event.preventDefault(); // Prevent click event from firing
+            return;
+        }
+    }
+    
+    handleMouseUp(event) {
+        // Stop rocket thrust on mouseup (hold mode)
+        const rocketBall = this.balls.find(ball => ball.isRocket && ball.rocketFuelRemaining > 0);
+        if (rocketBall && rocketBall.rocketThrustActive) {
+            // Deactivate thrust
+            rocketBall.rocketThrustActive = false;
+            // Update originalVelocity to current velocity after thrust ends
+            // This ensures bounces are based on actual current speed, not original shot speed
+            const currentVel = rocketBall.body.velocity;
+            rocketBall.originalVelocity = { x: currentVel.x, y: currentVel.y, z: currentVel.z || 0 };
+            // Stop thrust sound
+            if (rocketBall.rocketThrustSound) {
+                if (rocketBall.rocketThrustSound.stop) {
+                    // Web Audio API source
+                    rocketBall.rocketThrustSound.stop();
+                } else if (rocketBall.rocketThrustSound.pause) {
+                    // HTML5 Audio element
+                    rocketBall.rocketThrustSound.pause();
+                    rocketBall.rocketThrustSound.currentTime = 0;
+                }
+                rocketBall.rocketThrustSound = null;
+            }
+            if (rocketBall.flameMesh) {
+                rocketBall.flameMesh.visible = false;
+                rocketBall.flameVisible = false;
+            }
+            event.preventDefault(); // Prevent any click event from firing
+        }
     }
     
     setupKeyboardControls() {
@@ -587,17 +711,10 @@ export class Game {
     }
 
     handleClick(event) {
-        // Check if there's an active bomb to manually detonate
-        if (this.bombs && this.bombs.length > 0 && this.balls.length === 0) {
-            // Manually detonate the first active bomb
-            const bomb = this.bombs[0];
-            if (bomb && !bomb.exploded) {
-                this.explodeBomb(bomb);
-                return; // Don't shoot a new ball after detonating
-            }
-        }
+        // Bomb detonation and rocket thrust are handled in handleMouseDown
+        // This is only for shooting new balls
         
-        // Don't allow firing if there's already an active ball
+        // Don't allow firing if there's already an active ball (that isn't a rocket)
         if (this.balls.length > 0) {
             return;
         }
@@ -762,12 +879,26 @@ export class Game {
             // Quill shot is available if: has power turns AND is Spikey AND quill shot was activated (flag is true)
             const isQuillShot = hasPower && this.selectedCharacter?.id === 'spikey' && this.quillShotActive;
             
-            this.spawnBall(spawnX, spawnY, spawnZ, originalVelocity, originalVelocity, false, isQuillShot);
+            // Check if rocket should be active (based on power turns remaining, not just the flag)
+            // Rocket is available if: has power turns AND is Buzz AND rocket was activated (flag is true)
+            const isRocket = hasPower && this.selectedCharacter?.id === 'buzz' && this.rocketActive;
+            
+            this.spawnBall(spawnX, spawnY, spawnZ, originalVelocity, originalVelocity, false, isQuillShot, isRocket);
+            
+            // Update power display immediately after spawning to show full fuel gauge for new rocket ball
+            if (isRocket) {
+                this.updatePowerDisplay();
+            }
             
             // Consume quill shot flag after spawnBall (but keep power turns active for next shot if counter > 1)
             // Only consume if we actually used quill shot AND this was the last power turn
             if (isQuillShot && this.powerTurnsRemaining <= 1) {
                 this.quillShotActive = false;
+            }
+            
+            // Only consume rocket flag if we actually used rocket AND this was the last power turn
+            if (isRocket && this.powerTurnsRemaining <= 1) {
+                this.rocketActive = false;
             }
         }
         
@@ -870,6 +1001,11 @@ export class Game {
     explodeBomb(bomb) {
         if (!bomb || bomb.exploded) return;
         
+        // Play explosion sound at point of detonation
+        if (this.audioManager) {
+            this.audioManager.playSound('pegExplosion', { volume: 0.8 });
+        }
+        
         bomb.explode();
         const bombPos = bomb.body.position;
         const explosionRadius = 1.5;
@@ -954,6 +1090,13 @@ export class Game {
                     this.spikeyPower.onGreenPegHit(peg);
                     this.updatePowerDisplay();
                 }
+                
+                // Buzz the Rocketeer: activate rocket power
+                if (this.selectedCharacter?.id === 'buzz') {
+                    this.buzzPower.onGreenPegHit(peg);
+                    this.rocketActive = true; // Activate rocket for next shot
+                    this.updatePowerDisplay();
+                }
             }
             
             // Check for free ball
@@ -1027,6 +1170,13 @@ export class Game {
                 // Spikey the PufferFish: spawn spikes and activate quill shot
                 if (this.selectedCharacter?.id === 'spikey') {
                     this.spikeyPower.onGreenPegHit(peg);
+                    this.updatePowerDisplay();
+                }
+                
+                // Buzz the Rocketeer: activate rocket power
+                if (this.selectedCharacter?.id === 'buzz') {
+                    this.buzzPower.onGreenPegHit(peg);
+                    this.rocketActive = true; // Activate rocket for next shot
                     this.updatePowerDisplay();
                 }
             }
@@ -1320,6 +1470,8 @@ export class Game {
             currentPowerName = powerNames['quill'];
         } else if (this.selectedCharacter.id === 'petar' && this.powerTurnsRemaining > 0) {
             currentPowerName = powerNames['lucky'];
+        } else if (this.selectedCharacter.id === 'buzz' && this.rocketActive && this.powerTurnsRemaining > 0) {
+            currentPowerName = 'Rocket';
         }
         
         // Show current power
@@ -1328,6 +1480,21 @@ export class Game {
                 this.currentPowerDisplay.textContent = currentPowerName;
             } else {
                 this.currentPowerDisplay.textContent = '';
+            }
+        }
+        
+        // Update rocket fuel gauge (only visible when rocket power is active)
+        if (this.rocketFuelGauge && this.rocketFuelGaugeFill) {
+            const activeRocketBall = this.balls.find(ball => ball.isRocket && ball.rocketFuelRemaining !== undefined);
+            if (activeRocketBall && this.selectedCharacter?.id === 'buzz' && currentPowerName === 'Rocket') {
+                // Show gauge and update fill based on fuel remaining
+                const maxFuel = 1.5; // Maximum fuel time in seconds
+                const fuelPercent = Math.max(0, Math.min(100, (activeRocketBall.rocketFuelRemaining / maxFuel) * 100));
+                this.rocketFuelGaugeFill.style.width = `${fuelPercent}%`;
+                this.rocketFuelGauge.style.display = 'block';
+            } else {
+                // Hide gauge when no active rocket ball
+                this.rocketFuelGauge.style.display = 'none';
             }
         }
         
@@ -1441,6 +1608,11 @@ export class Game {
                 currentOption.classList.add('highlighted');
             }
             
+            // Play roulette sound for each highlight
+            if (this.audioManager) {
+                this.audioManager.playSound('pegRoulette', { volume: 0.6 });
+            }
+            
             currentIndex = (currentIndex + 1) % options.length;
             cycleCount++;
             
@@ -1549,6 +1721,7 @@ export class Game {
         this.petarPower.reset();
         this.johnPower.reset();
         this.spikeyPower.reset();
+        this.buzzPower.reset();
         
         // Clear all spikes
         if (this.spikes) {
@@ -1574,10 +1747,7 @@ export class Game {
         this.luckyClover.reset();
         this.luckyClover.enabled = false;
         
-        // Stop all music tracks (will restart when new game begins with only track 1)
-        if (this.audioManager) {
-            this.audioManager.stopAllMusic();
-        }
+        // Music continues playing - will restart when level loads after character selection
         
         // Update UI
         this.updateBallsRemainingUI();
@@ -1645,6 +1815,7 @@ export class Game {
         this.petarPower.reset();
         this.johnPower.reset();
         this.spikeyPower.reset();
+        this.buzzPower.reset();
         
         // Clear all spikes
         if (this.spikes) {
@@ -1670,10 +1841,7 @@ export class Game {
         this.luckyClover.reset();
         this.luckyClover.enabled = false;
         
-        // Stop all music tracks (will restart when new game begins with only track 1)
-        if (this.audioManager) {
-            this.audioManager.stopAllMusic();
-        }
+        // Music continues playing - will restart when level loads after character selection
         
         // Update UI
         this.updateBallsRemainingUI();
@@ -1696,7 +1864,8 @@ export class Game {
         
         // Determine multiplier based on percentage
         // Thresholds are exact: 40% = 2x, 60% = 3x, 80% = 5x, 90% = 10x
-        let previousMultiplier = this.orangePegMultiplier;
+        // Store previous multiplier BEFORE calculating new one
+        const previousMultiplier = this.orangePegMultiplier;
         if (percentage >= 90) {
             this.orangePegMultiplier = 8;
         } else if (percentage >= 80) {
@@ -1714,10 +1883,40 @@ export class Game {
         // Track 2: Unmutes at 2x (40%)
         // Track 3: Unmutes at 3x (60%)
         // Track 4: Unmutes at 5x (80%)
-        if (this.audioManager && previousMultiplier !== this.orangePegMultiplier) {
-            this.audioManager.setTrackMuted('PilotsOgg2', this.orangePegMultiplier < 2);
-            this.audioManager.setTrackMuted('PilotsOgg3', this.orangePegMultiplier < 3);
-            this.audioManager.setTrackMuted('PilotsOgg4', this.orangePegMultiplier < 5);
+        // Only update tracks when multiplier actually changes (prevents unnecessary fade-ins)
+        // Track states are managed by multiplier value, not by track existence
+        if (this.audioManager && this.musicStarted && previousMultiplier !== this.orangePegMultiplier) {
+            
+            // Determine mute states based on current multiplier value
+            // Use clear if/else chain based on multiplier value
+            let track2Muted, track3Muted, track4Muted;
+            
+            if (this.orangePegMultiplier >= 5) {
+                // 5x (80%) or 8x (90%): All tracks unmuted
+                track2Muted = false;
+                track3Muted = false;
+                track4Muted = false;
+            } else if (this.orangePegMultiplier >= 3) {
+                // 3x (60%): Tracks 2 and 3 unmuted, track 4 muted
+                track2Muted = false;
+                track3Muted = false;
+                track4Muted = true;
+            } else if (this.orangePegMultiplier >= 2) {
+                // 2x (40%): Track 2 unmuted, tracks 3 and 4 muted
+                track2Muted = false;
+                track3Muted = true;
+                track4Muted = true;
+            } else {
+                // 1x (below 40%): Tracks 2, 3, and 4 muted (only track 1 playing)
+                track2Muted = true;
+                track3Muted = true;
+                track4Muted = true;
+            }
+            
+            // Update mute states based on multiplier value (fade-in only happens when transitioning from muted to unmuted)
+            this.audioManager.setMusicTrackMuted('PilotsOgg2', track2Muted);
+            this.audioManager.setMusicTrackMuted('PilotsOgg3', track3Muted);
+            this.audioManager.setMusicTrackMuted('PilotsOgg4', track4Muted);
         }
         
         // Clamp percentage for display (shouldn't exceed 100%)
@@ -1772,7 +1971,7 @@ export class Game {
         
     }
 
-    spawnBall(x, y, z, velocity = null, originalVelocity = null, isYellow = false, isQuillShot = false) {
+    spawnBall(x, y, z, velocity = null, originalVelocity = null, isYellow = false, isQuillShot = false, isRocket = false) {
         const ballMaterial = this.physicsWorld.getBallMaterial();
         const ball = new Ball(this.scene, this.physicsWorld, { x, y, z }, velocity, ballMaterial, isYellow);
         // Store original velocity for lucky clover perk
@@ -1793,12 +1992,19 @@ export class Game {
         ball.isQuillShot = isQuillShot;
         ball.lastQuillShotTime = isQuillShot ? performance.now() / 1000 : 0;
         
-        // Apply reduced gravity for quill shot balls (0.85x normal gravity)
-        if (isQuillShot) {
-            // Set custom gravity on the ball body (0.85x normal gravity)
-            // Normal gravity is -9.82, so reduced is -9.82 * 0.85 = -8.347
-            ball.body.gravity = new CANNON.Vec3(0, -9.82 * 0.85, 0);
+        // Track if this is a rocket ball
+        ball.isRocket = isRocket;
+        if (isRocket) {
+            ball.rocketFuelRemaining = 1.5; // 1.5 seconds of fuel
+            ball.rocketThrustActive = false;
+            ball.rocketThrustStartTime = 0;
+            ball.rocketThrustPower = 0; // 0 to 1, builds up over 0.2s
+            ball.rocketThrustSound = null; // Track sound source to stop it when thrust ends
+            this.buzzPower.attachRocketVisual(ball);
         }
+        
+        // Quill shot balls will have gravity counteracted in update loop (like rocket)
+        // No need to set body.gravity here - we'll modify velocity directly
         
         // Enable lucky clover for this ball if power turns are available (power activates on shot, not on green peg hit)
         if (this.powerTurnsRemaining > 0 && this.selectedCharacter?.id === 'petar') {
@@ -1888,18 +2094,24 @@ export class Game {
             } else {
             }
             
-            // Initialize orange peg multiplier tracker
-            this.updateOrangePegMultiplier();
-            
-            // Start layered music tracks (fully restart for new round)
-            // Track 1 starts unmuted, tracks 2-4 start muted
-            if (this.audioManager) {
-                const musicTracks = ['PilotsOgg1', 'PilotsOgg2', 'PilotsOgg3', 'PilotsOgg4'];
-                // Stop all existing music first to ensure clean restart
-                this.audioManager.stopAllMusic();
-                // Load and start all tracks (track 1 unmuted, tracks 2-4 muted)
-                this.audioManager.loadLayeredMusic(musicTracks, `${import.meta.env.BASE_URL}sounds/`);
+            // Music tracks are loaded on page load, so we don't need to load them here
+            // When pegs are generated, play all tracks (they're already mounted)
+            if (this.audioManager && this.pegs.length > 0) {
+                // Play all music tracks (they're mounted but paused)
+                this.audioManager.playMusicTracks();
+                
+                // Mark as started
+                this.musicStarted = true;
+                
+                // Ensure correct mute states (track 1 unmuted, tracks 2-4 muted)
+                this.audioManager.setMusicTrackMuted('PilotsOgg1', false);
+                this.audioManager.setMusicTrackMuted('PilotsOgg2', true);
+                this.audioManager.setMusicTrackMuted('PilotsOgg3', true);
+                this.audioManager.setMusicTrackMuted('PilotsOgg4', true);
             }
+            
+            // Initialize orange peg multiplier tracker (this will set correct track states based on multiplier)
+            this.updateOrangePegMultiplier();
         } catch (error) {
             // Failed to load level
         }
@@ -2101,6 +2313,12 @@ export class Game {
             if (this.selectedCharacter?.id === 'spikey') {
                 this.spikeyPower.onGreenPegHit(peg);
             }
+            
+            // Buzz the Rocketeer: activate rocket power
+            if (this.selectedCharacter?.id === 'buzz') {
+                this.buzzPower.onGreenPegHit(peg);
+                this.rocketActive = true; // Activate rocket for next shot
+            }
         }
         
         // Calculate score
@@ -2138,6 +2356,36 @@ export class Game {
         // Handle purple peg multiplier
         if (peg.isPurple && peg === this.purplePeg) {
             this.assignPurplePeg();
+        }
+        
+        // If the active ball is out of play (no active balls), immediately destroy the peg
+        // This prevents pegs hit by spikes after the ball is gone from never being removed
+        if (this.balls.length === 0) {
+            const pegIndex = this.pegs.indexOf(peg);
+            if (pegIndex !== -1) {
+                peg.remove();
+                this.pegs.splice(pegIndex, 1);
+                
+                // Also remove from tracking arrays if present
+                if (spike.parentBall && spike.parentBall.hitPegs) {
+                    const ballPegIndex = spike.parentBall.hitPegs.indexOf(peg);
+                    if (ballPegIndex !== -1) {
+                        spike.parentBall.hitPegs.splice(ballPegIndex, 1);
+                    }
+                }
+                if (spike.parentBall && spike.parentBall.spikeHitPegs) {
+                    const spikePegIndex = spike.parentBall.spikeHitPegs.indexOf(peg);
+                    if (spikePegIndex !== -1) {
+                        spike.parentBall.spikeHitPegs.splice(spikePegIndex, 1);
+                    }
+                }
+                if (this.greenPegSpikeHitPegs.includes(peg)) {
+                    const greenSpikePegIndex = this.greenPegSpikeHitPegs.indexOf(peg);
+                    if (greenSpikePegIndex !== -1) {
+                        this.greenPegSpikeHitPegs.splice(greenSpikePegIndex, 1);
+                    }
+                }
+            }
         }
         
     }
@@ -2222,6 +2470,27 @@ export class Game {
                             this.spikeyPower.onGreenPegHit(peg);
                             this.updatePowerDisplay();
                         }
+                        
+                        // Buzz the Rocketeer: activate rocket power
+                        if (this.selectedCharacter?.id === 'buzz') {
+                            this.buzzPower.onGreenPegHit(peg);
+                            this.rocketActive = true; // Activate rocket for next shot
+                            this.updatePowerDisplay();
+                        }
+                        
+                        // Buzz the Rocketeer: activate rocket power
+                        if (this.selectedCharacter?.id === 'buzz') {
+                            this.buzzPower.onGreenPegHit(peg);
+                            this.rocketActive = true; // Activate rocket for next shot
+                            this.updatePowerDisplay();
+                        }
+                    }
+                    
+                    // Check for orange peg (goal progress) - only on first hit by ANY ball
+                    if (peg.isOrange) {
+                        this.goalProgress++;
+                        this.updateGoalUI();
+                        this.updateOrangePegMultiplier();
                     }
                 } catch (error) {
                     // ERROR in peg.onHit()
@@ -2281,13 +2550,6 @@ export class Game {
                     // Update UI
                     this.updateScoreUI();
                     this.updateFreeBallMeter();
-                    
-                    // Check for orange peg
-                    if (peg.isOrange) {
-                        this.goalProgress++;
-                        this.updateGoalUI();
-                        this.updateOrangePegMultiplier();
-                    }
                     
                     // Check for free ball
                     if (this.currentShotScore >= this.freeBallThreshold) {
@@ -2717,8 +2979,23 @@ export class Game {
             
             // Handle quill shot spike shooting from balls
             if (this.selectedCharacter?.id === 'spikey') {
+                const deltaTimeSeconds = deltaTime / 1000; // Convert to seconds
                 this.balls.forEach(ball => {
-                    this.spikeyPower.updateQuillShot(ball);
+                    this.spikeyPower.updateQuillShot(ball, deltaTimeSeconds);
+                });
+            }
+            
+            // Handle rocket thrust and visuals for rocket balls
+            if (this.selectedCharacter?.id === 'buzz') {
+                const deltaTimeSeconds = deltaTime / 1000; // Convert to seconds
+                this.balls.forEach(ball => {
+                    if (ball.isRocket) {
+                        this.buzzPower.updateRocket(ball, deltaTimeSeconds);
+                        // Update fuel gauge in real-time while rocket is active
+                        if (ball.rocketFuelRemaining !== undefined && this.rocketActive && this.powerTurnsRemaining > 0) {
+                            this.updatePowerDisplay();
+                        }
+                    }
                 });
             }
             

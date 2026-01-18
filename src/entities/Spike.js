@@ -28,9 +28,15 @@ export class Spike {
         
         // Calculate end position (use current length, will grow over time for green peg spikes)
         // For green peg spikes, start with a visible length so mesh is visible (especially for vertical spikes)
+        // For all spikes (including projectiles), ensure minimum visible length for vertical spikes
         // Store direction before calculating end position to ensure it's available
-        const initialLength = this.isGreenPegSpike && this.length === 0 ? 0.1 : this.length;
-        const endPosition = startPos.clone().add(this.direction.clone().multiplyScalar(Math.max(initialLength, 0.1)));
+        let initialLength = this.isGreenPegSpike && this.length === 0 ? 0.1 : this.length;
+        // Ensure minimum length for visibility, especially important for vertical spikes
+        const isVertical = Math.abs(this.direction.y) > 0.9 && Math.abs(this.direction.x) < 0.5;
+        if (initialLength < 0.1) {
+            initialLength = 0.1; // Minimum visible length
+        }
+        const endPosition = startPos.clone().add(this.direction.clone().multiplyScalar(initialLength));
         
         // Visual representation (line)
         // For green peg spikes, pass the direction explicitly to ensure correct perpendicular calculation
@@ -106,14 +112,22 @@ export class Spike {
         geometry.computeVertexNormals();
         geometry.computeBoundingBox(); // Ensure bounding box is computed
         
+        // Move the geometry so the base is at origin (before creating mesh)
+        // The triangle geometry has base at (-length, 0, 0) and tip at (0, 0, 0)
+        // We want the base at the mesh position, so translate by +length in local X
+        geometry.translate(length, 0, 0);
+        
         const material = new THREE.MeshBasicMaterial({
             color: 0xffffff, // White spikes
-            side: THREE.DoubleSide
+            side: THREE.DoubleSide,
+            depthTest: true,
+            depthWrite: true
         });
         
         this.mesh = new THREE.Mesh(geometry, material);
-        // Position mesh at end position (tip), then rotate to point in direction
-        this.mesh.position.copy(endPos);
+        // Position mesh at start position (base), not end position
+        // This way rotation happens around the base, not the tip
+        this.mesh.position.copy(startPos);
         
         // Calculate rotation to point in the direction
         // For vertical spikes (90° = up, 270° = down), ensure correct rotation
@@ -231,15 +245,9 @@ export class Spike {
             }
             
             // Update triangle position and rotation to follow the projectile
-            // Calculate tip position (current position + direction * length)
-            const tipPos = new THREE.Vector3(
-                currentPos.x + this.direction.x * this.length,
-                currentPos.y + this.direction.y * this.length,
-                currentPos.z + this.direction.z * this.length
-            );
-            
-            // Position mesh at tip position
-            this.mesh.position.copy(tipPos);
+            // Mesh is positioned at base (startPos), geometry has base at (0,0,0) and tip at (length,0,0) after translation
+            // So we position mesh at currentPos (which is where the base should be)
+            this.mesh.position.copy(currentPos);
             
             // Update rotation to point in direction of travel
             const angle = Math.atan2(this.direction.y, this.direction.x);

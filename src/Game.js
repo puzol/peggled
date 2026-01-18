@@ -113,7 +113,7 @@ export class Game {
                 id: 'peter',
                 name: 'Peter the Leprechaun',
                 power: 'Lucky Clover',
-                powerDescription: 'Every 3rd peg hit bounces the ball with 75% of original shot momentum'
+                powerDescription: 'Every 3rd peg hit bounces the ball with 75% of original shot momentum and generates a purple peg'
             },
             {
                 id: 'john',
@@ -131,7 +131,7 @@ export class Game {
                 id: 'buzz',
                 name: 'Buzz, the Rocketeer',
                 power: 'Rocket Power',
-                powerDescription: 'On green peg hit, adds a rocket power shot. Click to activate thrust, giving control of the ball.'
+                powerDescription: 'On green peg hit, adds a rocket power shot. Hold Ctrl to activate thrust, giving control of the ball.'
             }
         ];
         
@@ -566,16 +566,16 @@ export class Game {
         const rocketBall = this.balls.find(ball => ball.isRocket && ball.rocketFuelRemaining > 0);
         if (rocketBall && !rocketBall.rocketThrustActive) {
             // Activate thrust on mousedown (hold mode)
-                // Reduce ball velocity to 1 when activating thrust (for better control)
-                const currentVel = rocketBall.body.velocity;
-                const currentSpeed = Math.sqrt(currentVel.x * currentVel.x + currentVel.y * currentVel.y);
-                if (currentSpeed > 1.0) {
-                    // Normalize and scale to 1
-                    const scale = 1.0 / currentSpeed;
-                    rocketBall.body.velocity.set(currentVel.x * scale, currentVel.y * scale, 0);
-                    // Update originalVelocity to match current velocity so bounces are based on actual speed
-                    rocketBall.originalVelocity = { x: rocketBall.body.velocity.x, y: rocketBall.body.velocity.y, z: 0 };
-                }
+            // Reduce ball velocity to 1 when activating thrust (for better control)
+            const currentVel = rocketBall.body.velocity;
+            const currentSpeed = Math.sqrt(currentVel.x * currentVel.x + currentVel.y * currentVel.y);
+            if (currentSpeed > 1.0) {
+                // Normalize and scale to 1
+                const scale = 1.0 / currentSpeed;
+                rocketBall.body.velocity.set(currentVel.x * scale, currentVel.y * scale, 0);
+                // Update originalVelocity to match current velocity so bounces are based on actual speed
+                rocketBall.originalVelocity = { x: rocketBall.body.velocity.x, y: rocketBall.body.velocity.y, z: 0 };
+            }
             
             // Activate thrust
             rocketBall.rocketThrustActive = true;
@@ -647,6 +647,61 @@ export class Game {
             if (event.key === ' ') {
                 event.preventDefault(); // Prevent page scroll
                 this.handleKeyboardShoot();
+            }
+            
+            // Ctrl key: Activate rocket thrust (for Buzz the Rocketeer)
+            if (event.ctrlKey || event.metaKey) {
+                const rocketBall = this.balls.find(ball => ball.isRocket && ball.rocketFuelRemaining > 0);
+                if (rocketBall && !rocketBall.rocketThrustActive) {
+                    // Reduce ball velocity to 1 when activating thrust (for better control)
+                    const currentVel = rocketBall.body.velocity;
+                    const currentSpeed = Math.sqrt(currentVel.x * currentVel.x + currentVel.y * currentVel.y);
+                    if (currentSpeed > 1.0) {
+                        // Normalize and scale to 1
+                        const scale = 1.0 / currentSpeed;
+                        rocketBall.body.velocity.set(currentVel.x * scale, currentVel.y * scale, 0);
+                        // Update originalVelocity to match current velocity so bounces are based on actual speed
+                        rocketBall.originalVelocity = { x: rocketBall.body.velocity.x, y: rocketBall.body.velocity.y, z: 0 };
+                    }
+                    
+                    // Activate thrust
+                    rocketBall.rocketThrustActive = true;
+                    rocketBall.rocketThrustStartTime = performance.now() / 1000;
+                    rocketBall.rocketThrustPower = 1.0; // Start at full power (no ramp up)
+                    // Play thrust sound (looping)
+                    if (this.audioManager) {
+                        rocketBall.rocketThrustSound = this.audioManager.playSound('pegThrust', { volume: 0.7, loop: true });
+                    }
+                    event.preventDefault();
+                }
+            }
+        });
+        
+        // Handle keyup for stopping rocket thrust
+        window.addEventListener('keyup', (event) => {
+            // Stop rocket thrust when Ctrl is released
+            if (event.key === 'Control' || event.key === 'Meta') {
+                const rocketBall = this.balls.find(ball => ball.isRocket && ball.rocketFuelRemaining > 0);
+                if (rocketBall && rocketBall.rocketThrustActive) {
+                    // Deactivate thrust
+                    rocketBall.rocketThrustActive = false;
+                    // Update originalVelocity to current velocity after thrust ends
+                    // This ensures bounces are based on actual current speed, not original shot speed
+                    const currentVel = rocketBall.body.velocity;
+                    rocketBall.originalVelocity = { x: currentVel.x, y: currentVel.y, z: currentVel.z || 0 };
+                    // Stop thrust sound
+                    if (rocketBall.rocketThrustSound) {
+                        if (rocketBall.rocketThrustSound.stop) {
+                            // Web Audio API source
+                            rocketBall.rocketThrustSound.stop();
+                        } else if (rocketBall.rocketThrustSound.pause) {
+                            // HTML5 Audio element
+                            rocketBall.rocketThrustSound.pause();
+                            rocketBall.rocketThrustSound.currentTime = 0;
+                        }
+                        rocketBall.rocketThrustSound = null;
+                    }
+                }
             }
         });
     }
@@ -1484,17 +1539,17 @@ export class Game {
             }
         }
         
-        // Update rocket fuel gauge (only visible when rocket power is active)
+        // Update rocket fuel gauge (only visible when rocket ball exists with fuel)
         if (this.rocketFuelGauge && this.rocketFuelGaugeFill) {
-            const activeRocketBall = this.balls.find(ball => ball.isRocket && ball.rocketFuelRemaining !== undefined);
-            if (activeRocketBall && this.selectedCharacter?.id === 'buzz' && currentPowerName === 'Rocket') {
+            const activeRocketBall = this.balls.find(ball => ball.isRocket && ball.rocketFuelRemaining !== undefined && ball.rocketFuelRemaining > 0);
+            if (activeRocketBall && this.selectedCharacter?.id === 'buzz') {
                 // Show gauge and update fill based on fuel remaining
-                const maxFuel = 1.5; // Maximum fuel time in seconds
+                const maxFuel = 2.5; // Maximum fuel time in seconds
                 const fuelPercent = Math.max(0, Math.min(100, (activeRocketBall.rocketFuelRemaining / maxFuel) * 100));
                 this.rocketFuelGaugeFill.style.width = `${fuelPercent}%`;
                 this.rocketFuelGauge.style.display = 'block';
             } else {
-                // Hide gauge when no active rocket ball
+                // Hide gauge when no active rocket ball or fuel depleted
                 this.rocketFuelGauge.style.display = 'none';
             }
         }
@@ -1996,7 +2051,7 @@ export class Game {
         // Track if this is a rocket ball
         ball.isRocket = isRocket;
         if (isRocket) {
-            ball.rocketFuelRemaining = 1.5; // 1.5 seconds of fuel
+            ball.rocketFuelRemaining = 2.5; // 2.5 seconds of fuel
             ball.rocketThrustActive = false;
             ball.rocketThrustStartTime = 0;
             ball.rocketThrustPower = 0; // 0 to 1, builds up over 0.2s
@@ -3005,12 +3060,33 @@ export class Game {
                 this.balls.forEach(ball => {
                     if (ball.isRocket) {
                         this.buzzPower.updateRocket(ball, deltaTimeSeconds);
-                        // Update fuel gauge in real-time while rocket is active
-                        if (ball.rocketFuelRemaining !== undefined && this.rocketActive && this.powerTurnsRemaining > 0) {
-                            this.updatePowerDisplay();
+                        // Update fuel gauge in real-time while rocket ball exists and has fuel
+                        if (ball.rocketFuelRemaining !== undefined && ball.rocketFuelRemaining > 0) {
+                            // Update fuel gauge directly for real-time updates
+                            if (this.rocketFuelGauge && this.rocketFuelGaugeFill) {
+                                const maxFuel = 2.5; // Maximum fuel time in seconds
+                                const fuelPercent = Math.max(0, Math.min(100, (ball.rocketFuelRemaining / maxFuel) * 100));
+                                this.rocketFuelGaugeFill.style.width = `${fuelPercent}%`;
+                                this.rocketFuelGauge.style.display = 'block';
+                            }
+                        } else if (ball.rocketFuelRemaining !== undefined && ball.rocketFuelRemaining <= 0) {
+                            // Hide gauge when fuel is depleted
+                            if (this.rocketFuelGauge) {
+                                this.rocketFuelGauge.style.display = 'none';
+                            }
                         }
                     }
                 });
+                // If no rocket balls exist, hide the gauge
+                const hasRocketBall = this.balls.some(ball => ball.isRocket && ball.rocketFuelRemaining !== undefined && ball.rocketFuelRemaining > 0);
+                if (!hasRocketBall && this.rocketFuelGauge) {
+                    this.rocketFuelGauge.style.display = 'none';
+                }
+            } else {
+                // Hide gauge when not playing as Buzz
+                if (this.rocketFuelGauge) {
+                    this.rocketFuelGauge.style.display = 'none';
+                }
             }
             
             this.balls.forEach(ball => {

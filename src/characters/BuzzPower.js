@@ -4,7 +4,7 @@ import * as CANNON from 'cannon-es';
 /**
  * Buzz the Rocketeer - Rocket Power
  * On green peg hit: adds a rocket power shot to the queue
- * Power: Rocket - click to activate thrust, giving control of the ball
+ * Power: Rocket - hold Ctrl to activate thrust, giving control of the ball
  */
 export class BuzzPower {
     constructor(game) {

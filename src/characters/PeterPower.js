@@ -1,7 +1,7 @@
 /**
  * Peter the Leprechaun - Lucky Clover Power
  * On green peg hit: activates lucky clover power for 3 turns
- * Every 3rd peg hit bounces the ball with 75% of original shot momentum
+ * Every 3rd peg hit bounces the ball with 75% of original shot momentum and generates a purple peg
  * When power is active: hitting purple peg will activate and reposition it
  */
 export class PeterPower {

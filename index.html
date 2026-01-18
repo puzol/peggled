@@ -538,7 +538,7 @@
         }
 
         /* Level Editor Styles */
-        #level-editor-overlay {
+        .modal-overlay {
             position: fixed;
             top: 0;
             left: 0;
@@ -552,26 +552,84 @@
             pointer-events: none;
         }
 
-        #level-editor-overlay.active {
+        .modal-overlay.active {
             display: flex;
             pointer-events: auto;
         }
 
-        #level-editor-modal {
+        .modal {
             pointer-events: auto;
-        }
-
-        #level-editor-modal {
             background: linear-gradient(135deg, #2a2a3e 0%, #1a1a2e 100%);
             border: 3px solid #6495ed;
             border-radius: 15px;
             padding: 20px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7);
+        }
+
+        #file-operations-modal {
+            width: 90%;
+            max-width: 600px;
+        }
+
+        #objects-modal {
             width: 90%;
             max-width: 1200px;
             max-height: 90vh;
             display: flex;
             flex-direction: column;
-            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #6495ed;
+            padding-bottom: 10px;
+        }
+
+        .modal-header h2 {
+            color: white;
+            font-size: 28px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content {
+            display: flex;
+            flex-direction: column;
+        }
+
+        #file-operations-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        #file-operations-actions button {
+            padding: 10px 20px;
+            background: rgba(100, 149, 237, 0.3);
+            border: 2px solid #6495ed;
+            border-radius: 8px;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        #file-operations-actions button:hover {
+            background: rgba(100, 149, 237, 0.5);
+            transform: scale(1.05);
+        }
+
+        #objects-footer {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            padding-top: 10px;
+            border-top: 2px solid #6495ed;
+            margin-top: 20px;
         }
 
         #level-editor-header {
@@ -785,6 +843,26 @@
             background: rgba(100, 150, 255, 0.5);
             transform: scale(1.05);
         }
+
+        #objects-button {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background: rgba(100, 150, 255, 0.3);
+            border: 2px solid #6495ed;
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            z-index: 3000;
+            transition: all 0.3s ease;
+        }
+
+        #objects-button:hover {
+            background: rgba(100, 150, 255, 0.5);
+            transform: scale(1.05);
+        }
     </style>
 </head>
 <body>
@@ -845,14 +923,30 @@
 
     <!-- Level Editor Button (outside overlays to stay visible, only on localhost) -->
     <button id="level-editor-button" style="display: none;">Level Editor</button>
+    <button id="objects-button" style="display: none;">Objects</button>
 
-    <!-- Level Editor Modal -->
-    <div id="level-editor-overlay">
-        <div id="level-editor-modal">
-            <div id="level-editor-header">
+    <!-- File Operations Modal (shown when clicking Level Editor button) -->
+    <div id="file-operations-overlay" class="modal-overlay">
+        <div id="file-operations-modal" class="modal">
+            <div class="modal-header">
                 <h2>Level Editor</h2>
-                <button id="level-editor-close">×</button>
+                <button id="file-operations-close">×</button>
             </div>
+            <div class="modal-content">
+                <div id="file-operations-actions">
+                    <button id="level-editor-new">New Level</button>
+                    <button id="level-editor-load">Load Level</button>
+                    <button id="level-editor-save">Save Level</button>
+                    <button id="level-editor-test">Test Now</button>
+                    <input type="file" id="level-editor-file-input" accept=".json" style="display: none;">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Objects Toolbar Modal (shown when clicking Objects button) -->
+    <div id="objects-overlay" class="modal-overlay">
+        <div id="objects-modal" class="modal">
             <div id="level-editor-toolbar">
                 <div class="toolbar-row" id="pegs-row">
                     <div class="toolbar-row-label">Pegs</div>
@@ -871,18 +965,9 @@
                     <div class="toolbar-items" id="spacers-items"></div>
                 </div>
             </div>
-            <div id="level-editor-actions">
-                <div id="level-editor-actions-left">
-                    <button id="level-editor-new">New Level</button>
-                    <button id="level-editor-load">Load Level</button>
-                    <button id="level-editor-save">Save Level</button>
-                    <button id="level-editor-test">Test Now</button>
-                    <input type="file" id="level-editor-file-input" accept=".json" style="display: none;">
-                </div>
-                <div id="level-editor-actions-right">
-                    <span id="level-editor-selected-preview">Selected: None</span>
-                    <div id="level-editor-shape-preview"></div>
-                </div>
+            <div id="objects-footer">
+                <span id="level-editor-selected-preview">Selected: None</span>
+                <div id="level-editor-shape-preview"></div>
             </div>
         </div>
     </div>

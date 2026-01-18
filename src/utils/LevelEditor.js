@@ -16,7 +16,7 @@ export class LevelEditor {
         this.previewMesh = null; // Preview object that follows cursor
         this.mouseWorldPos = { x: 0, y: 0 }; // Current mouse position in world coordinates
         this.currentLevelName = null; // Current level name
-        this.currentLevelName = null; // Current level name
+        this.levelLoaded = false; // Whether a level is currently loaded
         
         // Peg sizes
         this.basePegSize = 0.09; // Base round peg size
@@ -109,9 +109,11 @@ export class LevelEditor {
             return;
         }
         
-        // Don't place if clicking inside modal
-        const modal = document.getElementById('level-editor-modal');
-        if (modal && modal.contains(event.target)) {
+        // Don't place if clicking inside modals
+        const objectsModal = document.getElementById('objects-modal');
+        const fileOperationsModal = document.getElementById('file-operations-modal');
+        if ((objectsModal && objectsModal.contains(event.target)) || 
+            (fileOperationsModal && fileOperationsModal.contains(event.target))) {
             console.log('Click inside modal, ignoring');
             return;
         }
@@ -283,28 +285,31 @@ export class LevelEditor {
     }
     
     initUI() {
-        // Get UI elements
+        // Get UI elements - file operations modal
         this.editorButton = document.getElementById('level-editor-button');
-        this.editorOverlay = document.getElementById('level-editor-overlay');
-        this.editorClose = document.getElementById('level-editor-close');
+        this.objectsButton = document.getElementById('objects-button');
+        this.fileOperationsOverlay = document.getElementById('file-operations-overlay');
+        this.fileOperationsClose = document.getElementById('file-operations-close');
         this.editorNew = document.getElementById('level-editor-new');
         this.editorLoad = document.getElementById('level-editor-load');
         this.editorSave = document.getElementById('level-editor-save');
         this.editorTest = document.getElementById('level-editor-test');
-        this.editorCloseFooter = document.getElementById('level-editor-close-footer');
         this.fileInput = document.getElementById('level-editor-file-input');
+        
+        // Get UI elements - objects toolbar modal
+        this.objectsOverlay = document.getElementById('objects-overlay');
         
         // Set up event listeners
         if (this.editorButton) {
-            this.editorButton.addEventListener('click', () => this.openEditor());
+            this.editorButton.addEventListener('click', () => this.openFileOperations());
         }
         
-        if (this.editorClose) {
-            this.editorClose.addEventListener('click', () => this.closeEditor());
+        if (this.objectsButton) {
+            this.objectsButton.addEventListener('click', () => this.openObjects());
         }
         
-        if (this.editorCloseFooter) {
-            this.editorCloseFooter.addEventListener('click', () => this.closeEditor());
+        if (this.fileOperationsClose) {
+            this.fileOperationsClose.addEventListener('click', () => this.closeFileOperations());
         }
         
         if (this.editorNew) {
@@ -328,10 +333,18 @@ export class LevelEditor {
         }
         
         // Close on overlay click
-        if (this.editorOverlay) {
-            this.editorOverlay.addEventListener('click', (e) => {
-                if (e.target === this.editorOverlay) {
-                    this.closeEditor();
+        if (this.fileOperationsOverlay) {
+            this.fileOperationsOverlay.addEventListener('click', (e) => {
+                if (e.target === this.fileOperationsOverlay) {
+                    this.closeFileOperations();
+                }
+            });
+        }
+        
+        if (this.objectsOverlay) {
+            this.objectsOverlay.addEventListener('click', (e) => {
+                if (e.target === this.objectsOverlay) {
+                    this.closeObjects();
                 }
             });
         }
@@ -341,6 +354,46 @@ export class LevelEditor {
         this.initShapesToolbar();
         this.initStaticToolbar();
         this.initSpacersToolbar();
+    }
+    
+    openFileOperations() {
+        if (this.fileOperationsOverlay) {
+            this.fileOperationsOverlay.classList.add('active');
+            // Hide character selector
+            if (this.game && this.game.hideCharacterSelector) {
+                this.game.hideCharacterSelector();
+            }
+        }
+    }
+    
+    closeFileOperations() {
+        if (this.fileOperationsOverlay) {
+            this.fileOperationsOverlay.classList.remove('active');
+        }
+    }
+    
+    openObjects() {
+        if (this.objectsOverlay) {
+            this.objectsOverlay.classList.add('active');
+            this.isActive = true;
+            // Update preview if tool is selected
+            if (this.selectedTool && this.game && this.game.scene) {
+                if (!this.previewMesh) {
+                    this.createPreviewMesh();
+                }
+            }
+        }
+    }
+    
+    closeObjects() {
+        if (this.objectsOverlay) {
+            this.objectsOverlay.classList.remove('active');
+            // Keep isActive true if tool is selected (for placement)
+            if (!this.selectedTool) {
+                this.isActive = false;
+                this.hidePreview();
+            }
+        }
     }
     
     initPegsToolbar() {
@@ -556,43 +609,6 @@ export class LevelEditor {
         }
     }
     
-    openEditor() {
-        if (this.editorOverlay) {
-            this.editorOverlay.classList.add('active');
-            this.isActive = true;
-            this.testingMode = false;
-            
-            // Hide character selector
-            if (this.game && this.game.hideCharacterSelector) {
-                this.game.hideCharacterSelector();
-            }
-            
-            // Don't automatically create blank level - user must click "New Level" button
-            // Update test button text
-            this.updateTestButton();
-        }
-    }
-    
-    closeEditor() {
-        if (this.editorOverlay) {
-            this.editorOverlay.classList.remove('active');
-            // Keep isActive true if tool is selected (for placement)
-            // If no tool selected, deactivate editor
-            if (!this.selectedTool) {
-                this.isActive = false;
-                this.hidePreview();
-            } else {
-                // Tool is selected, explicitly keep active for placement
-                this.isActive = true;
-                // Ensure preview mesh is created for selected tool
-                if (this.selectedTool && this.game && this.game.scene) {
-                    if (!this.previewMesh) {
-                        this.createPreviewMesh();
-                    }
-                }
-            }
-        }
-    }
     
     toggleTestMode() {
         if (this.testingMode) {
@@ -619,9 +635,12 @@ export class LevelEditor {
             };
         });
         
-        // Close modal but keep editor active state (we're still editing, just testing)
-        if (this.editorOverlay) {
-            this.editorOverlay.classList.remove('active');
+        // Close modals but keep editor active state (we're still editing, just testing)
+        if (this.fileOperationsOverlay) {
+            this.fileOperationsOverlay.classList.remove('active');
+        }
+        if (this.objectsOverlay) {
+            this.objectsOverlay.classList.remove('active');
         }
         
         this.updateTestButton();
@@ -671,9 +690,9 @@ export class LevelEditor {
             });
         }
         
-        // Reopen modal
-        if (this.editorOverlay) {
-            this.editorOverlay.classList.add('active');
+        // Reopen objects modal if needed
+        if (this.objectsOverlay && this.levelLoaded) {
+            this.objectsOverlay.classList.add('active');
         }
         
         this.updateTestButton();
@@ -700,6 +719,13 @@ export class LevelEditor {
         // Store level name
         this.currentLevelName = levelName || 'Untitled Level';
         
+        // Ensure game is initialized (scene and physicsWorld must exist)
+        if (this.game && (!this.game.scene || !this.game.physicsWorld)) {
+            if (this.game.init && typeof this.game.init === 'function') {
+                this.game.init();
+            }
+        }
+        
         // Clear all placed objects
         this.placedObjects = [];
         this.undoStack = [];
@@ -722,7 +748,35 @@ export class LevelEditor {
             item.classList.remove('selected');
         });
         
+        // Mark level as loaded and switch button
+        this.levelLoaded = true;
+        this.switchToObjectsButton();
+        
+        // Close file operations modal
+        this.closeFileOperations();
+        
         console.log('New blank level created:', this.currentLevelName);
+    }
+    
+    switchToObjectsButton() {
+        // Hide Level Editor button, show Objects button
+        if (this.editorButton) {
+            this.editorButton.style.display = 'none';
+        }
+        if (this.objectsButton) {
+            this.objectsButton.style.display = 'block';
+        }
+    }
+    
+    switchToEditorButton() {
+        // Show Level Editor button, hide Objects button
+        if (this.editorButton) {
+            this.editorButton.style.display = 'block';
+        }
+        if (this.objectsButton) {
+            this.objectsButton.style.display = 'none';
+        }
+        this.levelLoaded = false;
     }
     
     async loadLevelFromFile(file) {

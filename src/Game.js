@@ -2776,7 +2776,7 @@ export class Game {
                         
                         // Buzz's rocket power: orange pegs restore 0.25s fuel during power shot
                         if (this.selectedCharacter?.id === 'buzz' && ball.isRocket && ball.rocketFuelRemaining !== undefined) {
-                            ball.rocketFuelRemaining = Math.min(2.5, ball.rocketFuelRemaining + 0.5);
+                            ball.rocketFuelRemaining = Math.min(2.5, ball.rocketFuelRemaining + 0.333);
                         }
                     }
                 } catch (error) {

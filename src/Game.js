@@ -16,6 +16,8 @@ import { PeterPower } from './characters/PeterPower.js';
 import { JohnPower } from './characters/JohnPower.js';
 import { SpikeyPower } from './characters/SpikeyPower.js';
 import { BuzzPower } from './characters/BuzzPower.js';
+import { MikeyPower } from './characters/MikeyPower.js';
+import { MaddamPower } from './characters/MaddamPower.js';
 
 // Main game controller
 export class Game {
@@ -132,6 +134,18 @@ export class Game {
                 name: 'Buzz, the Rocketeer',
                 power: 'Rocket Power',
                 powerDescription: 'On green peg hit, adds a rocket power shot. Hold Ctrl to activate thrust, giving control of the ball.'
+            },
+            {
+                id: 'mikey',
+                name: 'Mikey, the man in the mirror',
+                power: 'Mirror Ball',
+                powerDescription: 'On green peg hit, grants a power move. On shot, shoots 2 balls: white ball and ethereal mirror ball that reflects along X-axis.'
+            },
+            {
+                id: 'maddam',
+                name: 'Maddam Magna Thicke',
+                power: 'Magnetic Pegs',
+                powerDescription: 'On green peg hit, grants a power for the next shot. Orange, Green, and Purple pegs gain magnetism, pulling the white ball within 1.5 points radius.'
             }
         ];
         
@@ -140,6 +154,8 @@ export class Game {
         this.johnPower = new JohnPower(this);
         this.spikeyPower = new SpikeyPower(this);
         this.buzzPower = new BuzzPower(this);
+        this.mikeyPower = new MikeyPower(this);
+        this.maddamPower = new MaddamPower(this);
         
         // John the Gunner power system
         this.gamePaused = false;
@@ -159,6 +175,9 @@ export class Game {
         
         // Buzz the Rocketeer power system
         this.rocketActive = false; // Flag for rocket power
+        
+        // Maddam Magna Thicke power system
+        this.magneticActive = false; // Flag for magnetic power
         
         // Perks
         this.luckyClover = new LuckyClover();
@@ -189,6 +208,11 @@ export class Game {
         
         // Initialize audio manager once (not in init() to prevent recreation)
         this.audioManager = new AudioManager();
+        
+        // Preload roulette sound early for character selector
+        this.audioManager.loadSound('pegRoulette', `${import.meta.env.BASE_URL}sounds/pegRoulette`, 'sfx').catch(err => {
+            console.warn('Failed to preload roulette sound:', err);
+        });
         
         // Load music tracks once on page load (mounts all tracks paused and muted except first)
         // This happens once when the game is created, not every time init() is called
@@ -250,6 +274,91 @@ export class Game {
             
             optionsContainer.appendChild(option);
         });
+        
+        // Add Random button as part of the character grid
+        const randomButtonWrapper = document.createElement('div');
+        randomButtonWrapper.id = 'random-character-button-wrapper';
+        const randomButtonElement = document.createElement('button');
+        randomButtonElement.id = 'random-character-button';
+        randomButtonElement.textContent = 'Random';
+        randomButtonWrapper.appendChild(randomButtonElement);
+        optionsContainer.appendChild(randomButtonWrapper);
+        
+        // Get the button reference after creating it
+        const randomButton = document.querySelector('#random-character-button');
+        
+        // Random character button handler with roulette effect
+        if (randomButton) {
+            randomButton.addEventListener('click', () => {
+                if (randomButton.disabled) return; // Prevent multiple clicks
+                
+                // Disable button during roulette
+                randomButton.disabled = true;
+                startButton.disabled = true;
+                
+                // Clear any existing selection
+                document.querySelectorAll('.character-option').forEach(opt => {
+                    opt.classList.remove('selected', 'roulette-highlight');
+                });
+                
+                const options = Array.from(document.querySelectorAll('.character-option'));
+                if (options.length === 0) {
+                    randomButton.disabled = false;
+                    return;
+                }
+                
+                let currentIndex = 0;
+                const cycleInterval = 100; // 100ms per option
+                const totalCycles = 20; // Cycle 20 times before selecting
+                let cycleCount = 0;
+                
+                const rouletteInterval = setInterval(() => {
+                    // Remove highlight from all options
+                    options.forEach(opt => {
+                        opt.classList.remove('roulette-highlight');
+                    });
+                    
+                    // Highlight current option
+                    if (options[currentIndex]) {
+                        options[currentIndex].classList.add('roulette-highlight');
+                    }
+                    
+                    // Play roulette sound for each highlight
+                    if (this.audioManager) {
+                        this.audioManager.playSound('pegRoulette', { volume: 0.6 });
+                    }
+                    
+                    currentIndex = (currentIndex + 1) % options.length;
+                    cycleCount++;
+                    
+                    // After cycling, randomly select one
+                    if (cycleCount >= totalCycles) {
+                        clearInterval(rouletteInterval);
+                        
+                        // Random selection
+                        const selectedIndex = Math.floor(Math.random() * options.length);
+                        const selectedCharacter = this.characters[selectedIndex];
+                        
+                        // Remove roulette highlight from all
+                        options.forEach(opt => {
+                            opt.classList.remove('roulette-highlight');
+                        });
+                        
+                        // Add selected class to chosen character
+                        if (options[selectedIndex]) {
+                            options[selectedIndex].classList.add('selected');
+                        }
+                        
+                        // Store selected character
+                        this.selectedCharacter = selectedCharacter;
+                        
+                        // Re-enable buttons
+                        randomButton.disabled = false;
+                        startButton.disabled = false;
+                    }
+                }, cycleInterval);
+            });
+        }
         
         // Start game button handler
         startButton.addEventListener('click', () => {
@@ -939,7 +1048,25 @@ export class Game {
             // Rocket is available if: has power turns AND is Buzz AND rocket was activated (flag is true)
             const isRocket = hasPower && this.selectedCharacter?.id === 'buzz' && this.rocketActive;
             
-            this.spawnBall(spawnX, spawnY, spawnZ, originalVelocity, originalVelocity, false, isQuillShot, isRocket);
+            // Check if mirror ball should be active (Mikey's power)
+            const isMirrorBall = hasPower && this.selectedCharacter?.id === 'mikey';
+            
+            // Check if magnetic power should be active (Maddam's power)
+            const isMagnetic = hasPower && this.selectedCharacter?.id === 'maddam' && this.magneticActive;
+            
+            const whiteBall = this.spawnBall(spawnX, spawnY, spawnZ, originalVelocity, originalVelocity, false, isQuillShot, isRocket);
+            
+            // If mirror ball power is active, create ghost ball
+            if (isMirrorBall && whiteBall) {
+                whiteBall.isMirrorBallActive = true;
+            }
+            
+            // If magnetic power is active, mark ball (magnets already created when shot ended)
+            if (isMagnetic && whiteBall) {
+                whiteBall.isMagnetic = true;
+                // Reset flag so magnets can be reactivated on next shot end
+                this.maddamPower.magnetismActivatedThisShot = false;
+            }
             
             // Update power display immediately after spawning to show full fuel gauge for new rocket ball
             if (isRocket) {
@@ -968,9 +1095,16 @@ export class Game {
             if (this.powerTurnsRemaining === 0) {
                 this.luckyCloverEnabled = false;
                 this.quillShotActive = false;
+                this.magneticActive = false; // Disable magnetic power
                 this.selectedPower = null;
                 this.powerQueue = [];
                 this.updatePowerDisplay();
+                
+                // Force hide magnets when power turns reach 0
+                if (this.selectedCharacter?.id === 'maddam' && this.maddamPower) {
+                    // Update magnet visuals one more time to scale them to 0
+                    this.maddamPower.updateMagnetVisuals(0.001); // Small deltaTime to trigger update
+                }
             }
         }
     }
@@ -1111,7 +1245,7 @@ export class Game {
             
             // Check for green peg (power activation) - purple pegs can also be green
             if (peg.isGreen) {
-                // Peter the Leprechaun: add 3 turns per green peg hit (others add 1)
+                // Peter the Leprechaun: add 3 turns per green peg hit
                 if (this.selectedCharacter?.id === 'peter') {
                     this.powerTurnsRemaining += 3;
                     this.updatePowerTurnsUI();
@@ -1122,6 +1256,14 @@ export class Game {
                     if (this.emojiEffect) {
                         this.emojiEffect.showEmoji('🍀', pegPos, 0.5);
                     }
+                } else if (this.selectedCharacter?.id === 'mikey') {
+                    // Mikey, the man in the mirror: add 2 turns per green peg hit
+                    this.powerTurnsRemaining += 2;
+                    this.updatePowerTurnsUI();
+                } else if (this.selectedCharacter?.id === 'maddam') {
+                    // Maddam Magna Thicke: add 1 turn per green peg hit
+                    this.powerTurnsRemaining += 1;
+                    this.updatePowerTurnsUI();
                 } else {
                     // All other characters: add 1 turn per green peg hit
                     this.powerTurnsRemaining += 1;
@@ -1193,7 +1335,7 @@ export class Game {
             
             // Check for green peg (power activation)
             if (peg.isGreen) {
-                // Peter the Leprechaun: add 3 turns per green peg hit (others add 1)
+                // Peter the Leprechaun: add 3 turns per green peg hit
                 if (this.selectedCharacter?.id === 'peter') {
                     this.powerTurnsRemaining += 3;
                     this.updatePowerTurnsUI();
@@ -1204,6 +1346,14 @@ export class Game {
                     if (this.emojiEffect) {
                         this.emojiEffect.showEmoji('🍀', pegPos, 0.5);
                     }
+                } else if (this.selectedCharacter?.id === 'mikey') {
+                    // Mikey, the man in the mirror: add 2 turns per green peg hit
+                    this.powerTurnsRemaining += 2;
+                    this.updatePowerTurnsUI();
+                } else if (this.selectedCharacter?.id === 'maddam') {
+                    // Maddam Magna Thicke: add 1 turn per green peg hit
+                    this.powerTurnsRemaining += 1;
+                    this.updatePowerTurnsUI();
                 } else {
                     // All other characters: add 1 turn per green peg hit
                     this.powerTurnsRemaining += 1;
@@ -1528,6 +1678,8 @@ export class Game {
             currentPowerName = powerNames['lucky'];
         } else if (this.selectedCharacter.id === 'buzz' && this.rocketActive && this.powerTurnsRemaining > 0) {
             currentPowerName = 'Rocket';
+        } else if (this.selectedCharacter.id === 'maddam' && this.magneticActive && this.powerTurnsRemaining > 0) {
+            currentPowerName = 'Magnetic Pegs';
         }
         
         // Show current power
@@ -1778,6 +1930,8 @@ export class Game {
         this.johnPower.reset();
         this.spikeyPower.reset();
         this.buzzPower.reset();
+        this.mikeyPower.reset();
+        this.maddamPower.reset();
         
         // Clear all spikes
         if (this.spikes) {
@@ -1842,10 +1996,11 @@ export class Game {
             startButton.disabled = true;
         }
         
-        // Clear seed input
+        // Keep the same seed for "Play Again with the same layout"
         const seedInput = this.seedInput || document.querySelector('#seed-input');
-        if (seedInput) {
-            seedInput.value = '';
+        if (seedInput && this.currentSeed !== null) {
+            // Set seed input to current seed so it will be reused
+            seedInput.value = this.currentSeed.toString();
         }
         
         // Clear roulette queue and power queue on restart
@@ -1858,7 +2013,7 @@ export class Game {
         this.selectedPower = null;
         this.updatePowerDisplay();
         
-        // Reset game state (seed will be generated when user starts new game)
+        // Reset game state (seed will be reused when user starts new game)
         this.ballsRemaining = 10;
         this.score = 0;
         this.goalProgress = 0;
@@ -1872,6 +2027,8 @@ export class Game {
         this.johnPower.reset();
         this.spikeyPower.reset();
         this.buzzPower.reset();
+        this.mikeyPower.reset();
+        this.maddamPower.reset();
         
         // Clear all spikes
         if (this.spikes) {
@@ -2000,6 +2157,20 @@ export class Game {
             this.purplePeg.mesh.material.color.setHex(0x4a90e2); // Blue
             this.purplePeg.isPurple = false;
             this.purplePeg.pointValue = 300; // Reset to base value (blue peg value)
+            
+            // If Maddam's power is active, remove magnet from the peg that's becoming blue
+            if (this.selectedCharacter?.id === 'maddam' && this.maddamPower && this.purplePeg.magnetMesh) {
+                // Remove magnet from this peg
+                this.scene.remove(this.purplePeg.magnetMesh);
+                this.purplePeg.magnetMesh.geometry.dispose();
+                this.purplePeg.magnetMesh.material.dispose();
+                this.purplePeg.magnetMesh = null;
+                // Remove from magnetic pegs array
+                const pegIndex = this.maddamPower.magneticPegs.indexOf(this.purplePeg);
+                if (pegIndex !== -1) {
+                    this.maddamPower.magneticPegs.splice(pegIndex, 1);
+                }
+            }
         }
         
         // Find all blue pegs (not orange, not green, not hit)
@@ -2025,6 +2196,15 @@ export class Game {
         // Change color to purple (lighter purple for default state)
         this.purplePeg.mesh.material.color.setHex(0xba55d3); // Lighter purple
         
+        // If Maddam's power is active, add magnet to the new purple peg
+        if (this.selectedCharacter?.id === 'maddam' && this.maddamPower && 
+            this.magneticActive && this.powerTurnsRemaining > 0) {
+            // Check if peg already has a magnet
+            if (!this.purplePeg.magnetMesh) {
+                this.maddamPower.createMagnetVisual(this.purplePeg);
+                this.maddamPower.magneticPegs.push(this.purplePeg);
+            }
+        }
     }
 
     spawnBall(x, y, z, velocity = null, originalVelocity = null, isYellow = false, isQuillShot = false, isRocket = false) {
@@ -2070,6 +2250,7 @@ export class Game {
             this.luckyClover.enabled = false;
         }
         this.balls.push(ball);
+        return ball; // Return ball reference for mirror ball pairing
     }
     
 
@@ -2335,7 +2516,7 @@ export class Game {
         // Process scoring and effects (similar to ball-peg collision)
         // Check for green peg (power activation)
         if (peg.isGreen) {
-            // Peter the Leprechaun: add 3 turns per green peg hit (others add 1)
+            // Peter the Leprechaun: add 3 turns per green peg hit
             if (this.selectedCharacter?.id === 'peter') {
                 this.powerTurnsRemaining += 3;
                 this.updatePowerTurnsUI();
@@ -2346,6 +2527,10 @@ export class Game {
                 if (this.emojiEffect) {
                     this.emojiEffect.showEmoji('🍀', { x: pegPos.x, y: pegPos.y, z: pegPos.z || 0 }, 0.5);
                 }
+            } else if (this.selectedCharacter?.id === 'mikey') {
+                // Mikey, the man in the mirror: add 2 turns per green peg hit
+                this.powerTurnsRemaining += 2;
+                this.updatePowerTurnsUI();
             } else {
                 // All other characters: add 1 turn per green peg hit
                 this.powerTurnsRemaining += 1;
@@ -2497,7 +2682,7 @@ export class Game {
                     
                     // Check for green peg (power activation) - only on first hit
                     if (peg.isGreen) {
-                        // Peter the Leprechaun: add 3 turns per green peg hit (others add 1)
+                        // Peter the Leprechaun: add 3 turns per green peg hit
                         if (this.selectedCharacter?.id === 'peter') {
                             this.powerTurnsRemaining += 3;
                             this.updatePowerTurnsUI();
@@ -2508,6 +2693,14 @@ export class Game {
                             if (this.emojiEffect) {
                                 this.emojiEffect.showEmoji('🍀', pegPos, 0.5);
                             }
+                        } else if (this.selectedCharacter?.id === 'mikey') {
+                            // Mikey, the man in the mirror: add 2 turns per green peg hit
+                            this.powerTurnsRemaining += 2;
+                            this.updatePowerTurnsUI();
+                        } else if (this.selectedCharacter?.id === 'maddam') {
+                            // Maddam Magna Thicke: add 1 turn per green peg hit
+                            this.powerTurnsRemaining += 1;
+                            this.updatePowerTurnsUI();
                         } else {
                             // All other characters: add 1 turn per green peg hit
                             this.powerTurnsRemaining += 1;
@@ -2540,7 +2733,14 @@ export class Game {
                             this.updatePowerDisplay();
                         }
                         
-                        // Buzz the Rocketeer: activate rocket power
+                        // Mikey, the man in the mirror: mirror ball power activated on green peg hit
+                        if (this.selectedCharacter?.id === 'mikey') {
+                            this.mikeyPower.onGreenPegHit(peg);
+                        } else if (this.selectedCharacter?.id === 'maddam') {
+                            this.magneticActive = true;
+                            this.maddamPower.onGreenPegHit(peg);
+                            // Don't create magnet visuals yet - wait until shot ends and player is ready
+                        }
                         if (this.selectedCharacter?.id === 'buzz') {
                             this.buzzPower.onGreenPegHit(peg);
                             this.rocketActive = true; // Activate rocket for next shot
@@ -2631,6 +2831,29 @@ export class Game {
                     if (this.selectedCharacter?.id === 'peter' && this.powerTurnsRemaining > 0) {
                         if (isPurplePeg) {
                             this.assignPurplePeg();
+                        }
+                    }
+                    
+                    // Mikey's mirror ball: trigger mirrored peg when white ball hits a peg
+                    if (ball.isMirrorBallActive) {
+                        // Find peg at mirrored X position (mirror along X-axis)
+                        const mirroredX = -peg.body.position.x;
+                        const pegY = peg.body.position.y;
+                        
+                        // Find peg at mirrored position (same Y, mirrored X)
+                        const mirroredPeg = this.pegs.find(p => 
+                            !p.hit && 
+                            p !== peg &&
+                            Math.abs(p.body.position.x - mirroredX) < 0.01 && 
+                            Math.abs(p.body.position.y - pegY) < 0.01
+                        );
+                        
+                        if (mirroredPeg) {
+                            // Trigger the mirrored peg using the spike collision handler
+                            this.handleSpikePegCollision({
+                                hitPegs: [],
+                                parentBall: ball
+                            }, mirroredPeg);
                         }
                     }
                 } else if (wasAlreadyTracked) {
@@ -3054,6 +3277,18 @@ export class Game {
                 });
             }
             
+            // Handle mirror ball ghost ball updates
+            if (this.selectedCharacter?.id === 'mikey') {
+                this.balls.forEach(ball => {
+                    if (ball.isMirrorBallActive && ball.ghostMesh) {
+                        // Update ghost ball position to mirror white ball
+                        this.mikeyPower.updateGhostBall(ball);
+                        // Check if ghost ball passes through pegs
+                        this.mikeyPower.checkGhostBallPegCollisions(ball);
+                    }
+                });
+            }
+            
             // Handle rocket thrust and visuals for rocket balls
             if (this.selectedCharacter?.id === 'buzz') {
                 const deltaTimeSeconds = deltaTime / 1000; // Convert to seconds
@@ -3087,6 +3322,21 @@ export class Game {
                 if (this.rocketFuelGauge) {
                     this.rocketFuelGauge.style.display = 'none';
                 }
+            }
+            
+            // Handle magnetic power updates for magnetic balls and magnet visuals
+            if (this.selectedCharacter?.id === 'maddam') {
+                const deltaTimeSeconds = deltaTime / 1000; // Convert to seconds
+                
+                // Update magnet visuals (scales to 0 when power turns reach 0)
+                this.maddamPower.updateMagnetVisuals(deltaTimeSeconds);
+                
+                // Update magnetism effects for active magnetic balls
+                this.balls.forEach(ball => {
+                    if (ball.isMagnetic) {
+                        this.maddamPower.updateMagnetism(ball, deltaTimeSeconds);
+                    }
+                });
             }
             
             this.balls.forEach(ball => {
@@ -3159,6 +3409,18 @@ export class Game {
             } else if (this.ballsRemaining > 0) {
                 // Show trajectory guide when no ball is active
                 this.updateTrajectoryGuide();
+                
+                // Activate magnetism visuals when shot ends and player is ready for next shot
+                if (this.selectedCharacter?.id === 'maddam' && this.magneticActive && this.powerTurnsRemaining > 0) {
+                    // Only activate if not already activated (prevents duplicate calls)
+                    if (!this.maddamPower.magnetismActivatedThisShot) {
+                        this.maddamPower.activateMagnetism();
+                        this.maddamPower.magnetismActivatedThisShot = true;
+                    }
+                } else {
+                    // Reset flag when conditions not met
+                    this.maddamPower.magnetismActivatedThisShot = false;
+                }
             }
             
             // Collision detection is already called immediately after physics update (above)
@@ -3189,6 +3451,35 @@ export class Game {
                             }
                         }
                     }
+                    
+                    // Check if ghost ball (mirror ball) is caught by bucket
+                    if (ball.isMirrorBallActive && ball.ghostMesh && !ball.ghostCaught) {
+                        const ghostPos = ball.ghostMesh.position;
+                        const catcherPos = this.bucket.topCatcher.body.position;
+                        const catcherHalfWidth = this.bucket.width / 2;
+                        const catcherHalfHeight = this.bucket.wallThickness / 2;
+                        
+                        // Check if ghost ball is within catcher bounds
+                        const withinX = Math.abs(ghostPos.x - catcherPos.x) < catcherHalfWidth + 0.1; // Ball radius is 0.1
+                        const withinY = Math.abs(ghostPos.y - catcherPos.y) < catcherHalfHeight + 0.1;
+                        
+                        if (withinX && withinY) {
+                            // Ghost ball caught!
+                            ball.ghostCaught = true;
+                            this.ballsRemaining++;
+                            this.updateBallsRemainingUI();
+                            
+                            // Play bucket catch sound
+                            if (this.audioManager) {
+                                this.audioManager.playSound('pegBucket', { volume: 0.8 });
+                            }
+                            
+                            // Hide ghost ball when caught
+                            if (ball.ghostMesh) {
+                                ball.ghostMesh.visible = false;
+                            }
+                        }
+                    }
                 });
             }
             
@@ -3207,6 +3498,13 @@ export class Game {
             const ballsBeforeCleanup = this.balls.length;
             this.balls = this.balls.filter(ball => {
                 if (ball.shouldRemove || ball.isOutOfBounds()) {
+                    // Clean up ghost ball mesh if it exists (mirror ball)
+                    if (ball.ghostMesh) {
+                        this.scene.remove(ball.ghostMesh);
+                        ball.ghostMesh.geometry.dispose();
+                        ball.ghostMesh.material.dispose();
+                        ball.ghostMesh = null;
+                    }
                     // Destroy all pegs that were hit by this ball (both caught and out-of-bounds balls)
                     ball.hitPegs.forEach(peg => {
                         const pegIndex = this.pegs.indexOf(peg);

@@ -91,6 +91,14 @@ export class Peg {
     }
 
     remove() {
+        // Remove magnet visual if it exists
+        if (this.magnetMesh) {
+            this.scene.remove(this.magnetMesh);
+            this.magnetMesh.geometry.dispose();
+            this.magnetMesh.material.dispose();
+            this.magnetMesh = null;
+        }
+        
         // Remove from scene
         this.scene.remove(this.mesh);
         

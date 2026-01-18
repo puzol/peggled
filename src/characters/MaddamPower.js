@@ -1,0 +1,361 @@
+import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
+
+/**
+ * Maddam Magna Thicke - Magnetic Pegs Power
+ * On green peg hit: grants a power for the next shot
+ * Power: Magnetic Pegs - Orange, Green, and Purple pegs gain magnetism
+ * White ball has a detection radius of 1.5 points
+ * If magnetic pegs are in range, they affect the white ball's velocity:
+ * - Add a pull force of 15 towards magnetic pegs
+ * - Reduce gravity to 5 while pull force is active
+ */
+export class MaddamPower {
+    constructor(game) {
+        this.game = game;
+        this.magneticPegs = []; // Track which pegs have magnetism
+        this.magnetTexture = null;
+        this.textureLoader = new THREE.TextureLoader();
+        this.scaleTransitionSpeed = 1.0 / 0.3; // Speed for 0.3s transition (per second)
+        this.rotationTransitionSpeed = 1.0 / 0.3; // Speed for 0.3s rotation transition (per second)
+        this.magnetismActivatedThisShot = false; // Track if magnets activated for current shot
+    }
+
+    /**
+     * Handle green peg hit - add magnetic power to queue
+     * Note: magneticActive flag is set in Game.js when green peg is hit
+     */
+    onGreenPegHit(peg) {
+        // Power turns are already added in Game.js (1 turn per green peg)
+        // This method is called to match the pattern of other character powers
+    }
+
+    /**
+     * Mark pegs as magnetic when power is activated
+     */
+    activateMagnetism() {
+        // First, remove magnets from pegs that should no longer have them (blue pegs)
+        // and clean up hit pegs
+        for (let i = this.magneticPegs.length - 1; i >= 0; i--) {
+            const peg = this.magneticPegs[i];
+            if (peg.hit || peg.isBlue || (!peg.isOrange && !peg.isGreen && !peg.isPurple)) {
+                // Remove magnet from this peg
+                if (peg.magnetMesh) {
+                    this.game.scene.remove(peg.magnetMesh);
+                    peg.magnetMesh.geometry.dispose();
+                    peg.magnetMesh.material.dispose();
+                    peg.magnetMesh = null;
+                }
+                this.magneticPegs.splice(i, 1);
+            }
+        }
+        
+        // Load magnet texture if not already loaded
+        if (!this.magnetTexture) {
+            this.magnetTexture = this.textureLoader.load(`${import.meta.env.BASE_URL}assets/svg/pegMagnet.svg`);
+        }
+        
+        // Find all Orange, Green, and Purple pegs and attach magnet visuals
+        // Only Orange, Green, and Purple - NOT blue pegs
+        for (const peg of this.game.pegs) {
+            if (!peg.hit && (peg.isOrange || peg.isGreen || peg.isPurple) && !peg.isBlue) {
+                // Check if peg already has a magnet
+                const alreadyHasMagnet = this.magneticPegs.includes(peg);
+                
+                if (!alreadyHasMagnet) {
+                    this.magneticPegs.push(peg);
+                }
+                
+                // Create magnet visual for this peg (if not already created)
+                if (!peg.magnetMesh) {
+                    this.createMagnetVisual(peg);
+                } else {
+                    // Reset scale to 0 to restart animation on new power shot
+                    peg.magnetCurrentScale = 0;
+                    peg.magnetMesh.scale.set(0, 0, 0);
+                }
+            }
+        }
+    }
+
+    /**
+     * Create magnet visual for a peg
+     */
+    createMagnetVisual(peg) {
+        // Ensure texture is loaded before creating visual
+        if (!this.magnetTexture) {
+            this.magnetTexture = this.textureLoader.load(`${import.meta.env.BASE_URL}assets/svg/pegMagnet.svg`);
+        }
+        
+        // Peg size is 0.09 (from Peg.js)
+        const pegSize = 0.09;
+        const magnetSize = pegSize * 3.0; // 3x the peg size (double the 1.5x)
+        const magnetRadius = pegSize + 0.02; // Offset from peg center (peg size + small offset)
+        
+        const magnetGeometry = new THREE.PlaneGeometry(magnetSize, magnetSize);
+        const magnetMaterial = new THREE.MeshBasicMaterial({
+            map: this.magnetTexture,
+            transparent: true,
+            depthTest: true,
+            depthWrite: true,
+            side: THREE.DoubleSide
+        });
+        
+        const magnetMesh = new THREE.Mesh(magnetGeometry, magnetMaterial);
+        
+        // Position magnet at radius offset from peg (will be updated when rotating toward ball)
+        const pegPos = peg.body.position;
+        magnetMesh.position.set(pegPos.x, pegPos.y - magnetRadius, (pegPos.z || 0) - 0.01);
+        magnetMesh.scale.set(0, 0, 0); // Start at scale 0
+        
+        // Add to scene (not to peg.mesh, so it can rotate independently)
+        this.game.scene.add(magnetMesh);
+        peg.magnetMesh = magnetMesh;
+        peg.magnetBaseScale = magnetSize; // Store base scale for scaling to peg size
+        peg.magnetRadius = magnetRadius; // Store radius for rotation around peg
+        peg.magnetCurrentScale = 0; // Track current scale for smooth transition
+        peg.magnetCurrentRotation = Math.PI; // Track current rotation (start pointing down)
+    }
+
+    /**
+     * Update magnet visuals (called every frame)
+     */
+    updateMagnetVisuals(deltaTime) {
+        if (!this.magneticPegs || this.magneticPegs.length === 0) {
+            return;
+        }
+
+        // Check if there's an active magnetic ball in play
+        const hasActiveMagneticBall = this.game.balls.some(ball => ball && ball.isMagnetic);
+        
+        // Magnets should be visible if:
+        // 1. Power is active and turns available (ready to shoot), OR
+        // 2. There's an active magnetic ball in play (during shot)
+        const powerActive = this.game.magneticActive && this.game.powerTurnsRemaining > 0;
+        const shouldShow = powerActive || hasActiveMagneticBall;
+        const targetScale = shouldShow ? 1.0 : 0.0;
+        const transitionSpeed = this.scaleTransitionSpeed * deltaTime;
+
+        // Ensure deltaTime is valid (prevent issues with 0 or negative values)
+        const validDeltaTime = deltaTime > 0 ? deltaTime : 0.016; // Default to ~60fps if invalid
+        const validTransitionSpeed = this.scaleTransitionSpeed * validDeltaTime;
+
+        // Update all magnet visuals
+        for (const peg of this.magneticPegs) {
+            if (peg.hit || !peg.body || !peg.magnetMesh) continue;
+
+            // Ensure magnetCurrentScale is initialized
+            if (peg.magnetCurrentScale === undefined) {
+                peg.magnetCurrentScale = 0;
+            }
+
+            // Smooth scale transition (0.3s)
+            if (peg.magnetCurrentScale < targetScale) {
+                peg.magnetCurrentScale = Math.min(targetScale, peg.magnetCurrentScale + validTransitionSpeed);
+            } else if (peg.magnetCurrentScale > targetScale) {
+                peg.magnetCurrentScale = Math.max(targetScale, peg.magnetCurrentScale - validTransitionSpeed);
+            }
+
+            peg.magnetMesh.scale.set(
+                peg.magnetCurrentScale,
+                peg.magnetCurrentScale,
+                peg.magnetCurrentScale
+            );
+
+            // Position and rotate magnet
+            const pegPos = peg.body.position;
+            
+            // Default position below peg when power active but ball not in range
+            if (shouldShow && !hasActiveMagneticBall) {
+                peg.magnetMesh.position.set(
+                    pegPos.x,
+                    pegPos.y - peg.magnetRadius,
+                    (pegPos.z || 0) - 0.01
+                );
+                // SVG points up originally, to point down we need 180° rotation
+                peg.magnetMesh.rotation.z = Math.PI; // Point down (180°)
+            }
+        }
+    }
+
+    /**
+     * Update magnetic effects on a ball and magnet visuals
+     * Called every frame for balls with magnetic power active
+     */
+    updateMagnetism(ball, deltaTime) {
+        if (!ball || !ball.isMagnetic || !this.magneticPegs || this.magneticPegs.length === 0) {
+            return;
+        }
+
+        const ballPos = ball.body.position;
+        const detectionRadius = 1.2; // Detection radius in points
+        
+        // Use same visibility logic as updateMagnetVisuals - magnets should animate if visible
+        const hasActiveMagneticBall = this.game.balls.some(b => b && b.isMagnetic);
+        const powerActive = this.game.magneticActive && this.game.powerTurnsRemaining > 0;
+        const shouldShow = powerActive || hasActiveMagneticBall;
+        
+        let hasMagneticPull = false;
+        let totalPullX = 0;
+        let totalPullY = 0;
+        let pullCount = 0;
+
+        // Update magnet visuals for all magnetic pegs when ball is active
+        for (const peg of this.magneticPegs) {
+            if (peg.hit || !peg.body || !peg.magnetMesh) continue;
+
+            const pegPos = peg.body.position;
+            const dx = pegPos.x - ballPos.x;
+            const dy = pegPos.y - ballPos.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const inRange = distance <= detectionRadius && distance > 0.01;
+
+            // Update magnet position and rotation based on ball location
+            // Use shouldShow instead of powerActive so magnets animate as long as they're visible
+            const validDeltaTime = deltaTime > 0 ? deltaTime : 0.016; // Default to ~60fps if invalid
+            const rotationTransitionSpeed = this.rotationTransitionSpeed * validDeltaTime;
+            
+            if (shouldShow && inRange) {
+                const angle = Math.atan2(dy, dx);
+                // Position magnet at radius offset from peg center, rotated toward ball
+                const offsetAngle = angle + Math.PI; // Flip 180° to face ball
+                const offsetX = Math.cos(offsetAngle) * peg.magnetRadius;
+                const offsetY = Math.sin(offsetAngle) * peg.magnetRadius;
+                peg.magnetMesh.position.set(
+                    pegPos.x + offsetX,
+                    pegPos.y + offsetY,
+                    (pegPos.z || 0) - 0.01
+                );
+                // Calculate target rotation to point at ball with top side
+                // angle = Math.atan2(dy, dx) where dx = peg.x - ball.x, dy = peg.y - ball.y
+                // This gives angle from ball to peg. To point from peg to ball, add 180°
+                // SVG is rotated 90° CW (points right at 0°), so to point up we need -90°
+                // To point at ball with top (up): angle from peg to ball - 90°
+                const angleToBall = angle + Math.PI; // Flip to point from peg to ball
+                const targetRotation = angleToBall - Math.PI / 2;
+                
+                // Smooth rotation interpolation
+                if (peg.magnetCurrentRotation === undefined) {
+                    peg.magnetCurrentRotation = Math.PI; // Start pointing down
+                }
+                peg.magnetCurrentRotation = this.smoothRotation(peg.magnetCurrentRotation, targetRotation, rotationTransitionSpeed);
+                peg.magnetMesh.rotation.z = peg.magnetCurrentRotation;
+            } else if (shouldShow) {
+                // Reset position below peg when ball not in range
+                peg.magnetMesh.position.set(
+                    pegPos.x,
+                    pegPos.y - peg.magnetRadius,
+                    (pegPos.z || 0) - 0.01
+                );
+                // Smooth rotation to pointing down (resting position)
+                const restingRotation = Math.PI; // Point down: SVG points up (0°), so 180° points down
+                if (peg.magnetCurrentRotation === undefined) {
+                    peg.magnetCurrentRotation = restingRotation;
+                }
+                peg.magnetCurrentRotation = this.smoothRotation(peg.magnetCurrentRotation, restingRotation, rotationTransitionSpeed);
+                peg.magnetMesh.rotation.z = peg.magnetCurrentRotation;
+            }
+
+            if (inRange) {
+                // Normalize direction from ball to peg
+                const dirX = dx / distance;
+                const dirY = dy / distance;
+
+                // Calculate pull force based on distance (3-stage linear interpolation)
+                // At radius 0.75: force = 15
+                // At radius 1.0: force = 10
+                // At radius 1.2: force = 5
+                let pullForce;
+                if (distance <= 0.75) {
+                    // Stage 1: Maximum pull at close range
+                    pullForce = 15;
+                } else if (distance <= 1.0) {
+                    // Stage 2: Interpolate between 15 and 10
+                    const t = (distance - 0.75) / (1.0 - 0.75); // 0 to 1
+                    pullForce = 15 + t * (10 - 15); // 15 down to 10
+                } else {
+                    // Stage 3: Interpolate between 10 and 5
+                    const t = (distance - 1.0) / (1.2 - 1.0); // 0 to 1
+                    pullForce = 10 + t * (5 - 10); // 10 down to 5
+                }
+                
+                totalPullX += dirX * pullForce;
+                totalPullY += dirY * pullForce;
+                pullCount++;
+                hasMagneticPull = true;
+            }
+        }
+
+        if (hasMagneticPull && pullCount > 0) {
+            // Average pull direction if multiple pegs are in range
+            const avgPullX = totalPullX / pullCount;
+            const avgPullY = totalPullY / pullCount;
+
+            const currentVel = ball.body.velocity;
+
+            // Add pull force (accumulate over time with deltaTime)
+            const pullX = avgPullX * deltaTime;
+            const pullY = avgPullY * deltaTime;
+            
+            const newVelX = currentVel.x + pullX;
+            const newVelY = currentVel.y + pullY;
+
+            // Apply new velocity without clamping
+            ball.body.velocity.set(newVelX, newVelY, currentVel.z || 0);
+
+            // Reduce gravity to 5 while pull force is active
+            // Normal gravity is -9.82, reduce to 5 means we counteract 9.82 - 5 = 4.82
+            const gravityCounteract = 4.82 * deltaTime;
+            ball.body.velocity.set(
+                ball.body.velocity.x,
+                ball.body.velocity.y + gravityCounteract,
+                ball.body.velocity.z || 0
+            );
+        }
+    }
+
+    /**
+     * Smoothly interpolate rotation angle, handling wrap-around at 2π
+     */
+    smoothRotation(current, target, speed) {
+        // Normalize angles to [0, 2π)
+        const normalizeAngle = (angle) => {
+            angle = angle % (Math.PI * 2);
+            if (angle < 0) angle += Math.PI * 2;
+            return angle;
+        };
+        
+        current = normalizeAngle(current);
+        target = normalizeAngle(target);
+        
+        // Calculate the shortest path (handles wrap-around)
+        let diff = target - current;
+        if (diff > Math.PI) diff -= Math.PI * 2;
+        if (diff < -Math.PI) diff += Math.PI * 2;
+        
+        // Interpolate
+        if (Math.abs(diff) < speed) {
+            return target;
+        }
+        return normalizeAngle(current + Math.sign(diff) * speed);
+    }
+
+    /**
+     * Reset power state and remove magnet visuals
+     */
+    reset() {
+        // Remove magnet visuals from all magnetic pegs
+        for (const peg of this.magneticPegs) {
+            if (peg.magnetMesh) {
+                this.game.scene.remove(peg.magnetMesh);
+                peg.magnetMesh.geometry.dispose();
+                peg.magnetMesh.material.dispose();
+                peg.magnetMesh = null;
+            }
+        }
+        
+        this.magneticPegs = [];
+        this.game.magneticActive = false;
+    }
+}
+

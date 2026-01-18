@@ -448,9 +448,14 @@ export class LevelEditor {
     openFileOperations() {
         if (this.fileOperationsOverlay) {
             this.fileOperationsOverlay.classList.add('active');
-            // Hide character selector
-            if (this.game && this.game.hideCharacterSelector) {
-                this.game.hideCharacterSelector();
+            // Hide character selector and level selector
+            if (this.game) {
+                if (this.game.hideCharacterSelector) {
+                    this.game.hideCharacterSelector();
+                }
+                if (this.game.hideLevelSelector) {
+                    this.game.hideLevelSelector();
+                }
             }
         }
     }

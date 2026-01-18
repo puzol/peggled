@@ -188,6 +188,7 @@ export class Game {
         // Seeded RNG system - will be initialized in startGame() after seed input is checked
         this.rng = null;
         this.currentSeed = null;
+        this.selectedLevelPath = null; // Path to selected level JSON file
         
         // Testing controls
         this.testAimAngle = null; // Set by number keys 1-6
@@ -198,7 +199,8 @@ export class Game {
         // Set up keyboard controls for testing
         this.setupKeyboardControls();
         
-        // Set up character selector
+        // Set up level selector first, then character selector
+        this.setupLevelSelector();
         this.setupCharacterSelector();
         
         // Set up copy seed button
@@ -239,6 +241,62 @@ export class Game {
     updateSeedDisplay() {
         if (this.seedValueElement && this.currentSeed !== null) {
             this.seedValueElement.textContent = this.currentSeed;
+        }
+    }
+
+    setupLevelSelector() {
+        const selector = document.querySelector('#level-selector');
+        const optionsContainer = document.querySelector('#level-options');
+        
+        if (!selector || !optionsContainer) return;
+        
+        // Available levels
+        const levels = [
+            { name: 'Level 1', path: 'levels/level1.json' },
+            { name: 'Level 2', path: 'levels/level2.json' },
+            { name: 'Test Level', path: 'levels/test-level.json' }
+        ];
+        
+        // Create level option elements
+        levels.forEach(level => {
+            const option = document.createElement('div');
+            option.className = 'level-option';
+            option.innerHTML = `
+                <div class="level-option-name">${level.name}</div>
+            `;
+            
+            option.addEventListener('click', () => {
+                // Remove selected class from all options
+                document.querySelectorAll('.level-option').forEach(opt => {
+                    opt.classList.remove('selected');
+                });
+                
+                // Add selected class to clicked option
+                option.classList.add('selected');
+                
+                // Store selected level path
+                this.selectedLevelPath = level.path;
+                
+                // Hide level selector and show character selector
+                this.hideLevelSelector();
+                this.showCharacterSelector();
+            });
+            
+            optionsContainer.appendChild(option);
+        });
+    }
+    
+    showLevelSelector() {
+        const levelSelector = document.querySelector('#level-selector');
+        if (levelSelector) {
+            levelSelector.style.display = 'flex';
+        }
+    }
+    
+    hideLevelSelector() {
+        const levelSelector = document.querySelector('#level-selector');
+        if (levelSelector) {
+            levelSelector.style.display = 'none';
         }
     }
 
@@ -469,12 +527,12 @@ export class Game {
         
         // Load level (music will start automatically when level loads)
         // Use import.meta.env.BASE_URL to handle base path in production (GitHub Pages)
-        // Only load level1.json if not in level editor mode and no level is already loaded
-        const shouldLoadDefaultLevel = !this.levelEditor || 
-            (!this.levelEditor.isActive && !this.levelEditor.levelLoaded);
+        // Only load level if selected and not in level editor mode
+        const shouldLoadLevel = this.selectedLevelPath && 
+            (!this.levelEditor || (!this.levelEditor.isActive && !this.levelEditor.levelLoaded));
         
-        if (shouldLoadDefaultLevel) {
-            await this.loadLevel(`${import.meta.env.BASE_URL}levels/level1.json`);
+        if (shouldLoadLevel) {
+            await this.loadLevel(`${import.meta.env.BASE_URL}${this.selectedLevelPath}`);
         }
         
         // Initialize UI
@@ -2206,8 +2264,14 @@ export class Game {
             return;
         }
         
-        // Randomly select one blue peg to be purple (using seeded RNG)
-        const randomIndex = this.rng.randomInt(0, bluePegs.length);
+        // Randomly select one blue peg to be purple (using seeded RNG if available, otherwise Math.random)
+        let randomIndex;
+        if (this.rng && this.rng.randomInt) {
+            randomIndex = this.rng.randomInt(0, bluePegs.length);
+        } else {
+            // Fallback to Math.random if RNG is not initialized (e.g., in level editor test mode)
+            randomIndex = Math.floor(Math.random() * bluePegs.length);
+        }
         this.purplePeg = bluePegs[randomIndex];
         this.purplePeg.isPurple = true;
         this.purplePeg.pointValue = 1500; // Purple peg value
@@ -2235,8 +2299,9 @@ export class Game {
         ball.hitPegs = [];
         // Track initial position for radius check
         ball.initialPosition = { x, y, z };
-        // Track time since last new peg hit
-        ball.lastNewPegHitTime = performance.now() / 1000;
+        // Track velocity for stuck detection
+        ball.stuckCheckStartTime = performance.now() / 1000;
+        ball.lastHighVelocityTime = performance.now() / 1000;
         // Track spawn time for 5-second airtime check
         ball.spawnTime = performance.now() / 1000;
         // Track if lucky clover is active for this ball (based on power turns remaining)
@@ -2288,9 +2353,17 @@ export class Game {
             
             // First, create all pegs as blue (base color from JSON)
             levelData.pegs.forEach(pegData => {
-                const baseColor = pegData.color 
-                    ? LevelLoader.hexToNumber(pegData.color) 
-                    : 0x4a90e2; // Default blue color
+                // Handle color - can be hex string (#4a90e2) or number (4886754)
+                let baseColor;
+                if (pegData.color) {
+                    if (typeof pegData.color === 'string') {
+                        baseColor = LevelLoader.hexToNumber(pegData.color);
+                    } else {
+                        baseColor = pegData.color; // Already a number
+                    }
+                } else {
+                    baseColor = 0x4a90e2; // Default blue color
+                }
                 
                 // Round peg positions to 3 decimals for determinism (match ball position precision)
                 const roundedX = this.roundToDecimals(pegData.x);
@@ -2325,9 +2398,15 @@ export class Game {
             if (!isTestLevel) {
                 // Randomly select pegs for special types
                 const indices = Array.from({length: this.pegs.length}, (_, i) => i);
-                // Fisher-Yates shuffle
+                // Fisher-Yates shuffle - use RNG if available, otherwise Math.random
                 for (let i = indices.length - 1; i > 0; i--) {
-                    const j = this.rng.randomInt(0, i + 1);
+                    let j;
+                    if (this.rng && this.rng.randomInt) {
+                        j = this.rng.randomInt(0, i + 1);
+                    } else {
+                        // Fallback to Math.random if RNG is not initialized
+                        j = Math.floor(Math.random() * (i + 1));
+                    }
                     [indices[i], indices[j]] = [indices[j], indices[i]];
                 }
                 
@@ -2802,6 +2881,30 @@ export class Game {
             }
             
             // Track this peg as hit by this ball (only if not already tracked)
+            // IMPORTANT: Only reset stuck check timers if this is a NEW peg hit (not already hit by any ball)
+            // If the peg was already hit by another ball but not tracked by this ball, don't reset timers
+            if (isNewHit) {
+                // Only reset timers when hitting a truly NEW peg (not already hit)
+                const currentTime = performance.now() / 1000;
+                ball.lastNewPegHitTime = currentTime;
+                // Reset stuck check when a new peg is hit (ball is moving/active)
+                ball.lastHighVelocityTime = currentTime;
+                console.log('[STUCK CHECK] Timer RESET - New peg hit:', {
+                    pegHit: !peg.hit ? 'NEW' : 'ALREADY HIT',
+                    isNewHit,
+                    wasAlreadyTracked,
+                    time: currentTime,
+                    position: ballPos
+                });
+            } else if (!wasAlreadyTracked) {
+                // Peg already hit by another ball but not tracked by this ball - don't reset timers
+                console.log('[STUCK CHECK] Timer NOT reset - Already hit peg:', {
+                    pegHit: 'ALREADY HIT (by another ball)',
+                    isNewHit,
+                    wasAlreadyTracked
+                });
+            }
+            
             if (!wasAlreadyTracked) {
                     try {
                         if (!ball.hitPegs) {
@@ -2809,7 +2912,6 @@ export class Game {
                         }
                         
                         ball.hitPegs.push(peg);
-                        ball.lastNewPegHitTime = performance.now() / 1000; // Update time
                     } catch (error) {
                         // Continue anyway - don't let tracking errors stop processing
                     }
@@ -2894,9 +2996,8 @@ export class Game {
                         }
                     }
                 } else if (wasAlreadyTracked) {
-                    // Peg already tracked - still update last hit time for stuck ball detection
-                    ball.lastNewPegHitTime = performance.now() / 1000;
-                    
+                    // Peg already tracked - don't update last hit time or stuck check position
+                    // We only care about new peg hits for stuck ball detection
                     // Also trigger lucky clover counter for already hit pegs
                     if (this.selectedCharacter?.id === 'peter') {
                         this.peterPower.handleLuckyCloverBounceAlreadyHit(ball, peg);
@@ -3336,7 +3437,7 @@ export class Game {
                         if (ball.rocketFuelRemaining !== undefined && ball.rocketFuelRemaining > 0) {
                             // Update fuel gauge directly for real-time updates
                             if (this.rocketFuelGauge && this.rocketFuelGaugeFill) {
-                                const maxFuel = 2.5; // Maximum fuel time in seconds
+                                const maxFuel = 2; // Maximum fuel time in seconds
                                 const fuelPercent = Math.max(0, Math.min(100, (ball.rocketFuelRemaining / maxFuel) * 100));
                                 this.rocketFuelGaugeFill.style.width = `${fuelPercent}%`;
                                 this.rocketFuelGauge.style.display = 'block';
@@ -3396,18 +3497,29 @@ export class Game {
                     }
                 }
                 
-                // Check if ball is stuck or in air too long
-                const timeSinceLastNewPeg = currentTimeSeconds - ball.lastNewPegHitTime;
-                const timeSinceSpawn = currentTimeSeconds - ball.spawnTime;
-                const ballPos = ball.body.position;
-                const dx = ballPos.x - ball.initialPosition.x;
-                const dy = ballPos.y - ball.initialPosition.y;
-                const distanceFromStart = Math.sqrt(dx * dx + dy * dy);
+                // Stuck check: if velocity hasn't exceeded 0.5 in 2 seconds, remove pegs
+                // Initialize stuck check properties if missing
+                if (!ball.stuckCheckStartTime) {
+                    ball.stuckCheckStartTime = ball.spawnTime || currentTimeSeconds;
+                }
+                if (!ball.lastHighVelocityTime) {
+                    ball.lastHighVelocityTime = ball.spawnTime || currentTimeSeconds;
+                }
                 
-                // Check if ball should trigger peg removal:
-                // 1. Within 2 units of start and hasn't hit new peg in 2 seconds, OR
-                // 2. Ball has been in air for 5 seconds
-                const shouldRemovePegs = (distanceFromStart < 2.0 && timeSinceLastNewPeg >= 2.0) || timeSinceSpawn >= 5.0;
+                const ballVelocity = Math.sqrt(
+                    ball.body.velocity.x * ball.body.velocity.x + 
+                    ball.body.velocity.y * ball.body.velocity.y
+                );
+                
+                // Update last high velocity time if ball is moving fast enough
+                const velocityThreshold = 0.5;
+                if (ballVelocity > velocityThreshold) {
+                    ball.lastHighVelocityTime = currentTimeSeconds;
+                }
+                
+                // Check how long since velocity was above threshold
+                const timeSinceHighVelocity = currentTimeSeconds - ball.lastHighVelocityTime;
+                const shouldRemovePegs = timeSinceHighVelocity >= 2.0 && ball.hitPegs && ball.hitPegs.length > 0;
                 
                 if (shouldRemovePegs && ball.hitPegs.length > 0) {
                     // Start removing hit pegs in order with 0.15 second stagger
@@ -3416,27 +3528,116 @@ export class Game {
                         ball.pegRemoveStartTime = currentTimeSeconds;
                         ball.pegRemoveIndex = 0;
                         // Snapshot the hit pegs at the moment removal starts
-                        // This ensures we only remove pegs that were hit up to this point
-                        ball.pegsToRemove = [...ball.hitPegs];
+                        // Filter to only include pegs that still exist in this.pegs
+                        ball.pegsToRemove = ball.hitPegs.filter(peg => this.pegs.includes(peg));
+                        console.log('[STUCK CHECK] Starting peg removal process:', {
+                            hitPegsCount: ball.hitPegs.length,
+                            pegsToRemoveCount: ball.pegsToRemove.length,
+                            totalPegsInGame: this.pegs.length,
+                            pegRemoveStartTime: ball.pegRemoveStartTime
+                        });
                     }
                     
                     // Remove pegs one by one from the snapshot
                     const timeSinceRemoveStart = currentTimeSeconds - ball.pegRemoveStartTime;
                     const expectedIndex = Math.floor(timeSinceRemoveStart / 0.15);
                     
+                    // Log removal loop status
+                    const loopCondition1 = ball.pegRemoveIndex <= expectedIndex;
+                    const loopCondition2 = ball.pegRemoveIndex < ball.pegsToRemove.length;
+                    const willLoopExecute = loopCondition1 && loopCondition2;
+                    
+                    // Only log every 0.5 seconds to avoid spam
+                    const shouldLogLoop = !ball.lastRemovalLogTime || (currentTimeSeconds - ball.lastRemovalLogTime) >= 0.5;
+                    if (shouldLogLoop || !willLoopExecute) {
+                        console.log('[STUCK CHECK] Removal loop check:', {
+                            timeSinceRemoveStart: timeSinceRemoveStart.toFixed(2),
+                            expectedIndex,
+                            currentIndex: ball.pegRemoveIndex,
+                            pegsToRemoveCount: ball.pegsToRemove?.length || 0,
+                            totalPegsInGame: this.pegs.length,
+                            condition1: `${ball.pegRemoveIndex} <= ${expectedIndex}`,
+                            condition1Result: loopCondition1,
+                            condition2: `${ball.pegRemoveIndex} < ${ball.pegsToRemove?.length || 0}`,
+                            condition2Result: loopCondition2,
+                            willLoopExecute
+                        });
+                        ball.lastRemovalLogTime = currentTimeSeconds;
+                    }
+                    
+                    let removedThisFrame = 0;
+                    let loopIterations = 0;
                     while (ball.pegRemoveIndex <= expectedIndex && ball.pegRemoveIndex < ball.pegsToRemove.length) {
+                        loopIterations++;
                         const pegToRemove = ball.pegsToRemove[ball.pegRemoveIndex];
                         const pegIndex = this.pegs.indexOf(pegToRemove);
                         if (pegIndex !== -1) {
                             pegToRemove.remove();
                             this.pegs.splice(pegIndex, 1);
+                            removedThisFrame++;
+                            console.log('[STUCK CHECK] ✓ Removed peg:', {
+                                pegIndex,
+                                removalIndex: ball.pegRemoveIndex,
+                                remainingPegs: this.pegs.length,
+                                pegsToRemoveRemaining: ball.pegsToRemove.length - ball.pegRemoveIndex - 1
+                            });
+                        } else {
+                            // Peg already removed or doesn't exist - skip it
+                            if (shouldLogLoop || removedThisFrame === 0) {
+                                console.log('[STUCK CHECK] ✗ Peg not found (already removed?):', {
+                                    removalIndex: ball.pegRemoveIndex,
+                                    pegExists: !!pegToRemove,
+                                    pegsInGame: this.pegs.length
+                                });
+                            }
                         }
                         ball.pegRemoveIndex++;
                     }
-                } else {
-                    // Reset removal state if ball moves away or hits new peg
-                    ball.removingPegs = false;
-                    ball.pegsToRemove = null;
+                    
+                    // Check if all pegs in snapshot have been processed
+                    if (ball.pegRemoveIndex >= ball.pegsToRemove.length) {
+                        // All pegs in snapshot have been processed
+                        // Re-check if there are more hit pegs that still exist in this.pegs
+                        const remainingHitPegs = ball.hitPegs.filter(peg => this.pegs.includes(peg));
+                        if (remainingHitPegs.length > 0) {
+                            // There are more pegs to remove - reset and continue
+                            console.log('[STUCK CHECK] Re-filtering - more pegs to remove:', {
+                                previousRemoved: ball.pegsToRemove.length,
+                                newPegsToRemove: remainingHitPegs.length,
+                                totalHitPegs: ball.hitPegs.length
+                            });
+                            ball.pegRemoveStartTime = currentTimeSeconds;
+                            ball.pegRemoveIndex = 0;
+                            ball.pegsToRemove = remainingHitPegs;
+                        } else {
+                            // All hit pegs have been removed - ball is freed, reset stuck check
+                            console.log('[STUCK CHECK] All hit pegs removed - resetting stuck check');
+                            ball.removingPegs = false;
+                            ball.pegsToRemove = null;
+                            // Reset stuck check so ball can move freely
+                            ball.lastHighVelocityTime = currentTimeSeconds;
+                        }
+                    } else if (loopIterations === 0) {
+                        // Loop not executing due to conditions
+                        console.log('[STUCK CHECK] Loop not executing - conditions not met:', {
+                            currentIndex: ball.pegRemoveIndex,
+                            expectedIndex,
+                            pegsToRemoveCount: ball.pegsToRemove.length,
+                            condition1: `${ball.pegRemoveIndex} <= ${expectedIndex}`,
+                            condition2: `${ball.pegRemoveIndex} < ${ball.pegsToRemove.length}`
+                        });
+                    }
+                    
+                    if (removedThisFrame > 0) {
+                        console.log('[STUCK CHECK] ✓ Removed', removedThisFrame, 'pegs this frame');
+                    }
+                } else if (!shouldRemovePegs) {
+                    // Reset removal state if ball moves away or hits new peg (but only if shouldRemovePegs is false)
+                    if (ball.removingPegs) {
+                        console.log('[STUCK CHECK] Resetting removal state - shouldRemovePegs is false');
+                        ball.removingPegs = false;
+                        ball.pegsToRemove = null;
+                    }
                 }
             });
             

@@ -74,33 +74,63 @@ export class Peg {
     }
 
     createPhysicsBody(position, pegMaterial) {
-        let shape;
+        const material = pegMaterial || new CANNON.Material({
+            friction: 0.3,
+            restitution: 0.7 // Match wall bounce
+        });
+        
+        this.body = new CANNON.Body({
+            mass: 0, // Static body
+            material: material
+        });
         
         if (this.type === 'round') {
             // Use sphere for round pegs
-            shape = new CANNON.Sphere(this.actualSize);
-        } else if (this.type === 'rect' || this.type === 'dome') {
-            // Use box for rectangular/dome pegs
+            const shape = new CANNON.Sphere(this.actualSize);
+            this.body.addShape(shape);
+        } else if (this.type === 'rect') {
+            // Use box for rectangular pegs
             const height = this.actualSize;
             const width = height * 2;
             // Box half extents: [halfWidth, halfHeight, halfDepth]
             // For 2D game with camera looking down +Z, box should be flat in XY plane
             // Use larger depth (0.1) to ensure reliable collision detection
-            // The box is axis-aligned in Cannon.js, so it's already in XY plane at z=0
-            shape = new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, 0.1));
+            const shape = new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, 0.1));
+            this.body.addShape(shape);
+        } else if (this.type === 'dome') {
+            // Dome peg: compound shape with box bottom and sphere top
+            const height = this.actualSize;
+            const width = height * 2;
+            const cornerRadius = height * 0.2; // 20% curve on top (matches visual)
+            
+            // Bottom rectangular part (most of the height, excluding the rounded top)
+            // The rounded top takes about 20% of the height, so box is 80% of height
+            const boxHeight = height * 0.8;
+            const boxShape = new CANNON.Box(new CANNON.Vec3(width / 2, boxHeight / 2, 0.1));
+            // Position box at bottom (offset down by half the difference)
+            const boxOffset = new CANNON.Vec3(0, -(height - boxHeight) / 2, 0);
+            this.body.addShape(boxShape, boxOffset);
+            
+            // Top rounded part - use a sphere positioned at the top
+            // The sphere radius should match the corner radius
+            const sphereRadius = cornerRadius;
+            const sphereShape = new CANNON.Sphere(sphereRadius);
+            // Position sphere at the top center (offset up by half the box height + sphere radius)
+            const sphereOffset = new CANNON.Vec3(0, boxHeight / 2 + sphereRadius * 0.7, 0);
+            this.body.addShape(sphereShape, sphereOffset);
+            
+            // Add side spheres for the curved edges (optional, for better collision)
+            // Left and right spheres at the top corners
+            const sideSphereOffsetY = boxHeight / 2 + sphereRadius * 0.5;
+            const leftSphereOffset = new CANNON.Vec3(-width / 2, sideSphereOffsetY, 0);
+            const rightSphereOffset = new CANNON.Vec3(width / 2, sideSphereOffsetY, 0);
+            this.body.addShape(sphereShape, leftSphereOffset);
+            this.body.addShape(sphereShape, rightSphereOffset);
         } else {
             // Default to sphere
-            shape = new CANNON.Sphere(this.actualSize);
+            const shape = new CANNON.Sphere(this.actualSize);
+            this.body.addShape(shape);
         }
-        
-        this.body = new CANNON.Body({
-            mass: 0, // Static body
-            shape: shape,
-            material: pegMaterial || new CANNON.Material({
-                friction: 0.3,
-                restitution: 0.7 // Match wall bounce
-            })
-        });
         
         this.body.position.set(position.x, position.y, position.z);
         this.physicsWorldWrapper.addBody(this.body);

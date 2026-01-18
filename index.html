@@ -306,6 +306,76 @@
             transform: translate(-50%, -50%) scale(0.98);
         }
 
+        #level-selector {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+
+        #level-selector-content {
+            background: linear-gradient(135deg, #2a2a3e 0%, #1a1a2e 100%);
+            border: 3px solid #6495ed;
+            border-radius: 15px;
+            padding: 30px;
+            max-width: 800px;
+            width: 90%;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7);
+        }
+
+        #level-selector-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        #level-selector-header h2 {
+            color: white;
+            font-size: 32px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            margin: 0;
+        }
+
+        #level-options {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .level-option {
+            background: rgba(100, 149, 237, 0.2);
+            border: 2px solid #6495ed;
+            border-radius: 10px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+        }
+
+        .level-option:hover {
+            background: rgba(100, 149, 237, 0.4);
+            transform: scale(1.05);
+            border-color: #87ceeb;
+        }
+
+        .level-option.selected {
+            background: rgba(100, 149, 237, 0.5);
+            border-color: #ffd700;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
+        }
+
+        .level-option-name {
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
         #character-selector {
             position: fixed;
             top: 0;
@@ -915,7 +985,16 @@
     </style>
 </head>
 <body>
-    <div id="character-selector">
+    <div id="level-selector">
+        <div id="level-selector-content">
+            <div id="level-selector-header">
+                <h2>Select Level</h2>
+            </div>
+            <div id="level-options"></div>
+        </div>
+    </div>
+
+    <div id="character-selector" style="display: none;">
         <div id="character-selector-content">
             <div id="character-selector-header">
                 <h2>Select Your Character</h2>

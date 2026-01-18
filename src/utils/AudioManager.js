@@ -44,12 +44,14 @@ export class AudioManager {
         const secondOctave = firstOctave.map(pitch => pitch * 2);
         this.pegHitScale = [...firstOctave, ...secondOctave];
         this.pegHitIndex = 0; // Current position in scale
+        this.pegHitDirection = 1; // 1 for up, -1 for down (ping-pong direction)
         this.lastPegHitPitch = null; // Track last pitch used for new peg hits
         
         // Ghost ball scale (reversed - high to low)
         // Reverse the regular scale and start from the highest pitch
         this.ghostBallScale = [...secondOctave, ...firstOctave].reverse();
         this.ghostBallHitIndex = 0; // Current position in ghost ball scale
+        this.ghostBallHitDirection = -1; // -1 for down, 1 for up (ping-pong direction, starts going down)
         this.lastGhostBallPitch = null; // Track last pitch used for ghost ball hits
         
         // Reverb impulse response (simple room reverb)
@@ -278,8 +280,17 @@ export class AudioManager {
         // Track last pitch for already-hit pegs
         this.lastPegHitPitch = pitch;
         
-        // Move to next note in scale (wrap around after octave)
-        this.pegHitIndex = (this.pegHitIndex + 1) % this.pegHitScale.length;
+        // Move to next note in scale (ping-pong: bounce at ends)
+        this.pegHitIndex += this.pegHitDirection;
+        
+        // Bounce at the ends (reverse direction)
+        if (this.pegHitIndex >= this.pegHitScale.length) {
+            this.pegHitIndex = this.pegHitScale.length - 2; // Go to second-to-last
+            this.pegHitDirection = -1; // Reverse to go down
+        } else if (this.pegHitIndex < 0) {
+            this.pegHitIndex = 1; // Go to second note
+            this.pegHitDirection = 1; // Reverse to go up
+        }
         
         this.playSound('pegHit', { volume: 0.6, pitch });
     }
@@ -362,9 +373,11 @@ export class AudioManager {
      */
     resetPegHitScale() {
         this.pegHitIndex = 0;
+        this.pegHitDirection = 1; // Reset to going up
         this.lastPegHitPitch = null; // Reset last pitch tracking
         // Also reset ghost ball scale
         this.ghostBallHitIndex = 0;
+        this.ghostBallHitDirection = -1; // Reset to going down
         this.lastGhostBallPitch = null;
     }
     
@@ -379,8 +392,17 @@ export class AudioManager {
         // Track last pitch for already-hit pegs
         this.lastGhostBallPitch = pitch;
         
-        // Move to next note in scale (wrap around after scale)
-        this.ghostBallHitIndex = (this.ghostBallHitIndex + 1) % this.ghostBallScale.length;
+        // Move to next note in scale (ping-pong: bounce at ends)
+        this.ghostBallHitIndex += this.ghostBallHitDirection;
+        
+        // Bounce at the ends (reverse direction)
+        if (this.ghostBallHitIndex >= this.ghostBallScale.length) {
+            this.ghostBallHitIndex = this.ghostBallScale.length - 2; // Go to second-to-last
+            this.ghostBallHitDirection = -1; // Reverse to go down
+        } else if (this.ghostBallHitIndex < 0) {
+            this.ghostBallHitIndex = 1; // Go to second note
+            this.ghostBallHitDirection = 1; // Reverse to go up
+        }
         
         if (!this.enabled) return;
         

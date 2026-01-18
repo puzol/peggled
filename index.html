@@ -536,6 +536,255 @@
             box-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
             transform: scale(1.1);
         }
+
+        /* Level Editor Styles */
+        #level-editor-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 4000;
+            pointer-events: none;
+        }
+
+        #level-editor-overlay.active {
+            display: flex;
+            pointer-events: auto;
+        }
+
+        #level-editor-modal {
+            pointer-events: auto;
+        }
+
+        #level-editor-modal {
+            background: linear-gradient(135deg, #2a2a3e 0%, #1a1a2e 100%);
+            border: 3px solid #6495ed;
+            border-radius: 15px;
+            padding: 20px;
+            width: 90%;
+            max-width: 1200px;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7);
+        }
+
+        #level-editor-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #6495ed;
+            padding-bottom: 10px;
+        }
+
+        #level-editor-header h2 {
+            color: white;
+            font-size: 28px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        #level-editor-close {
+            background: rgba(255, 100, 100, 0.3);
+            border: 2px solid #ff6464;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            color: white;
+            font-size: 28px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        #level-editor-close:hover {
+            background: rgba(255, 100, 100, 0.5);
+            transform: scale(1.1);
+        }
+
+        #level-editor-toolbar {
+            flex: 1;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+        }
+
+        .toolbar-row {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: rgba(100, 149, 237, 0.1);
+            border-radius: 8px;
+            border: 1px solid rgba(100, 149, 237, 0.3);
+        }
+
+        .toolbar-row-label {
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+        }
+
+        .toolbar-items {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .toolbar-item {
+            width: 60px;
+            height: 60px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.4);
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .toolbar-item:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.1);
+        }
+
+        .toolbar-item.selected {
+            border-color: #ffd700;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.6);
+            background: rgba(255, 215, 0, 0.2);
+        }
+
+        .toolbar-item-preview {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #level-editor-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 10px;
+            border-top: 2px solid #6495ed;
+        }
+
+        #level-editor-actions-left {
+            display: flex;
+            gap: 10px;
+        }
+
+        #level-editor-actions-right {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        #level-editor-selected-preview {
+            color: white;
+            font-size: 14px;
+            padding: 5px 15px;
+            background: rgba(100, 149, 237, 0.2);
+            border: 1px solid rgba(100, 149, 237, 0.5);
+            border-radius: 6px;
+        }
+
+        #level-editor-shape-preview {
+            width: 40px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(100, 149, 237, 0.5);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #level-editor-shape-preview::before {
+            content: '';
+            width: 60%;
+            height: 60%;
+            background: rgba(100, 150, 255, 0.5);
+            border-radius: 50%;
+        }
+
+        #level-editor-shape-preview.rect::before {
+            border-radius: 0;
+            width: 70%;
+            height: 40%;
+        }
+
+        #level-editor-shape-preview.dome::before {
+            border-radius: 50% 50% 0 0;
+            width: 70%;
+            height: 40%;
+        }
+
+        #level-editor-shape-preview.line::before {
+            border-radius: 0;
+            width: 90%;
+            height: 20%;
+        }
+
+        #level-editor-actions button {
+            padding: 10px 20px;
+            background: rgba(100, 149, 237, 0.3);
+            border: 2px solid #6495ed;
+            border-radius: 8px;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        #level-editor-actions button:hover {
+            background: rgba(100, 149, 237, 0.5);
+            transform: scale(1.05);
+        }
+
+        #level-editor-close-footer {
+            background: rgba(255, 100, 100, 0.3);
+            border: 2px solid #ff6464;
+            padding: 10px 20px;
+            font-size: 20px;
+        }
+
+        #level-editor-close-footer:hover {
+            background: rgba(255, 100, 100, 0.5);
+        }
+
+        /* Level Editor Button - outside overlays */
+        #level-editor-button {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            background: rgba(100, 150, 255, 0.3);
+            border: 2px solid #6495ed;
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            z-index: 3000;
+            transition: all 0.3s ease;
+        }
+
+        #level-editor-button:hover {
+            background: rgba(100, 150, 255, 0.5);
+            transform: scale(1.05);
+        }
     </style>
 </head>
 <body>
@@ -590,6 +839,50 @@
                 <div id="next-power-display"></div>
                 <button id="play-again-button">Play Again</button>
                 <button id="play-again-new-seed-button">Play Again with the same layout</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Level Editor Button (outside overlays to stay visible, only on localhost) -->
+    <button id="level-editor-button" style="display: none;">Level Editor</button>
+
+    <!-- Level Editor Modal -->
+    <div id="level-editor-overlay">
+        <div id="level-editor-modal">
+            <div id="level-editor-header">
+                <h2>Level Editor</h2>
+                <button id="level-editor-close">×</button>
+            </div>
+            <div id="level-editor-toolbar">
+                <div class="toolbar-row" id="pegs-row">
+                    <div class="toolbar-row-label">Pegs</div>
+                    <div class="toolbar-items" id="pegs-items"></div>
+                </div>
+                <div class="toolbar-row" id="shapes-row">
+                    <div class="toolbar-row-label">Shapes</div>
+                    <div class="toolbar-items" id="shapes-items"></div>
+                </div>
+                <div class="toolbar-row" id="static-row">
+                    <div class="toolbar-row-label">Static</div>
+                    <div class="toolbar-items" id="static-items"></div>
+                </div>
+                <div class="toolbar-row" id="spacers-row">
+                    <div class="toolbar-row-label">Spacers</div>
+                    <div class="toolbar-items" id="spacers-items"></div>
+                </div>
+            </div>
+            <div id="level-editor-actions">
+                <div id="level-editor-actions-left">
+                    <button id="level-editor-new">New Level</button>
+                    <button id="level-editor-load">Load Level</button>
+                    <button id="level-editor-save">Save Level</button>
+                    <button id="level-editor-test">Test Now</button>
+                    <input type="file" id="level-editor-file-input" accept=".json" style="display: none;">
+                </div>
+                <div id="level-editor-actions-right">
+                    <span id="level-editor-selected-preview">Selected: None</span>
+                    <div id="level-editor-shape-preview"></div>
+                </div>
             </div>
         </div>
     </div>

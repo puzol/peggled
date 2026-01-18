@@ -18,6 +18,7 @@ import { SpikeyPower } from './characters/SpikeyPower.js';
 import { BuzzPower } from './characters/BuzzPower.js';
 import { MikeyPower } from './characters/MikeyPower.js';
 import { MaddamPower } from './characters/MaddamPower.js';
+import { LevelEditor } from './utils/LevelEditor.js';
 
 // Main game controller
 export class Game {
@@ -156,6 +157,7 @@ export class Game {
         this.buzzPower = new BuzzPower(this);
         this.mikeyPower = new MikeyPower(this);
         this.maddamPower = new MaddamPower(this);
+        this.levelEditor = new LevelEditor(this);
         
         // John the Gunner power system
         this.gamePaused = false;
@@ -879,6 +881,11 @@ export class Game {
     handleClick(event) {
         // Bomb detonation and rocket thrust are handled in handleMouseDown
         // This is only for shooting new balls
+        
+        // Don't allow firing if level editor is active and not in testing mode
+        if (this.levelEditor && this.levelEditor.isActive && !this.levelEditor.testingMode) {
+            return;
+        }
         
         // Don't allow firing if there's already an active ball (that isn't a rocket)
         if (this.balls.length > 0) {
@@ -1682,6 +1689,8 @@ export class Game {
             currentPowerName = powerNames['lucky'];
         } else if (this.selectedCharacter.id === 'buzz' && this.rocketActive && this.powerTurnsRemaining > 0) {
             currentPowerName = 'Rocket';
+        } else if (this.selectedCharacter.id === 'mikey' && this.powerTurnsRemaining > 0) {
+            currentPowerName = 'Mirror Ball';
         } else if (this.selectedCharacter.id === 'maddam' && this.magneticActive && this.powerTurnsRemaining > 0) {
             currentPowerName = 'Magnetic Pegs';
         }
@@ -1700,7 +1709,7 @@ export class Game {
             const activeRocketBall = this.balls.find(ball => ball.isRocket && ball.rocketFuelRemaining !== undefined && ball.rocketFuelRemaining > 0);
             if (activeRocketBall && this.selectedCharacter?.id === 'buzz') {
                 // Show gauge and update fill based on fuel remaining
-                const maxFuel = 2.5; // Maximum fuel time in seconds
+                const maxFuel = 2.0; // Maximum fuel time in seconds
                 const fuelPercent = Math.max(0, Math.min(100, (activeRocketBall.rocketFuelRemaining / maxFuel) * 100));
                 this.rocketFuelGaugeFill.style.width = `${fuelPercent}%`;
                 this.rocketFuelGauge.style.display = 'block';
@@ -2235,7 +2244,7 @@ export class Game {
         // Track if this is a rocket ball
         ball.isRocket = isRocket;
         if (isRocket) {
-            ball.rocketFuelRemaining = 2.5; // 2.5 seconds of fuel
+            ball.rocketFuelRemaining = 2.0; // 2 seconds of fuel
             ball.rocketThrustActive = false;
             ball.rocketThrustStartTime = 0;
             ball.rocketThrustPower = 0; // 0 to 1, builds up over 0.2s
@@ -2764,6 +2773,11 @@ export class Game {
                         this.goalProgress++;
                         this.updateGoalUI();
                         this.updateOrangePegMultiplier();
+                        
+                        // Buzz's rocket power: orange pegs restore 0.25s fuel during power shot
+                        if (this.selectedCharacter?.id === 'buzz' && ball.isRocket && ball.rocketFuelRemaining !== undefined) {
+                            ball.rocketFuelRemaining = Math.min(2.0, ball.rocketFuelRemaining + 0.25);
+                        }
                     }
                 } catch (error) {
                     // ERROR in peg.onHit()

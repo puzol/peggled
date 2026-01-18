@@ -455,6 +455,191 @@ export class AudioManager {
     }
     
     /**
+     * Play magnet sound with fade in, looping with crossfade, and volume oscillation
+     * Returns a handle object to control the sound
+     */
+    playMagnetSound() {
+        if (!this.enabled) return null;
+        
+        try {
+            if (this.audioContext && this.audioBuffers.has('pegMagnet')) {
+                // Use Web Audio API with simple loop
+                const { buffer, type } = this.audioBuffers.get('pegMagnet');
+                const fadeInTime = 0.3; // 0.3s fade in
+                
+                const source = this.audioContext.createBufferSource();
+                const gainNode = this.audioContext.createGain();
+                const masterGainNode = this.audioContext.createGain();
+                
+                source.buffer = buffer;
+                source.loop = true; // Simple loop
+                
+                const baseVolume = 1.0;
+                masterGainNode.gain.value = baseVolume * (type === 'music' ? this.musicVolume : this.sfxVolume) * this.masterVolume;
+                
+                // Fade in
+                gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+                gainNode.gain.linearRampToValueAtTime(1.0, this.audioContext.currentTime + fadeInTime);
+                
+                source.connect(gainNode);
+                gainNode.connect(masterGainNode);
+                masterGainNode.connect(this.audioContext.destination);
+                
+                source.start(0);
+                
+                return {
+                    type: 'webaudio',
+                    masterGain: masterGainNode,
+                    source: source,
+                    gainNode: gainNode,
+                    stop: () => {
+                        try {
+                            source.stop();
+                            gainNode.disconnect();
+                            masterGainNode.disconnect();
+                        } catch (e) {
+                            // Source may already be stopped
+                        }
+                    }
+                };
+            } else if (this.sounds.has('pegMagnet')) {
+                // Fallback to HTML5 Audio (simpler, no crossfade)
+                const { audio, type } = this.sounds.get('pegMagnet');
+                const audioClone = audio.cloneNode();
+                
+                audioClone.loop = true;
+                audioClone.volume = 0; // Start at 0 for fade in
+                
+                // Fade in
+                const fadeInDuration = 300; // 0.3s in milliseconds
+                const fadeSteps = 30;
+                const fadeStepTime = fadeInDuration / fadeSteps;
+                const fadeStepVolume = 1.0 / fadeSteps;
+                let currentStep = 0;
+                
+                const fadeInterval = setInterval(() => {
+                    currentStep++;
+                    const targetVolume = fadeStepVolume * currentStep * (type === 'music' ? this.musicVolume : this.sfxVolume) * this.masterVolume;
+                    audioClone.volume = Math.min(targetVolume, (type === 'music' ? this.musicVolume : this.sfxVolume) * this.masterVolume);
+                    
+                    if (currentStep >= fadeSteps) {
+                        clearInterval(fadeInterval);
+                    }
+                }, fadeStepTime);
+                
+                audioClone.play().catch(() => {});
+                
+                return {
+                    type: 'html5',
+                    audio: audioClone,
+                    fadeInterval: fadeInterval,
+                    stop: () => {
+                        clearInterval(fadeInterval);
+                        audioClone.pause();
+                        audioClone.currentTime = 0;
+                    }
+                };
+            }
+        } catch (error) {
+            // Error playing magnet sound
+        }
+        return null;
+    }
+    
+    /**
+     * Update volume for magnet sound (for oscillation)
+     * @param {Object} handle - Sound handle from playMagnetSound
+     * @param {number} volume - Volume (0-1)
+     */
+    updateMagnetSoundVolume(handle, volume) {
+        if (!handle) return;
+        
+        try {
+            if (handle.type === 'webaudio' && handle.masterGain) {
+                const baseVolume = volume * (this.sfxVolume) * this.masterVolume;
+                // Cancel any scheduled fade out if volume is being updated (sound is still active)
+                const currentTime = this.audioContext.currentTime;
+                handle.masterGain.gain.cancelScheduledValues(currentTime);
+                handle.masterGain.gain.setValueAtTime(baseVolume, currentTime);
+            } else if (handle.type === 'html5' && handle.audio) {
+                // For HTML5, scale the volume (accounting for master and SFX volumes)
+                const finalVolume = volume * this.sfxVolume * this.masterVolume;
+                handle.audio.volume = Math.max(0, Math.min(1, finalVolume));
+            }
+        } catch (error) {
+            // Error updating volume
+        }
+    }
+    
+    /**
+     * Stop magnet sound with fade out
+     * @param {Object} handle - Sound handle from playMagnetSound
+     */
+    stopMagnetSound(handle) {
+        if (!handle) return;
+        
+        try {
+            const fadeOutTime = 0.3; // 0.3s fade out
+            
+            if (handle.type === 'webaudio' && handle.source && handle.masterGain) {
+                const currentTime = this.audioContext.currentTime;
+                
+                // Fade out volume using masterGain
+                handle.masterGain.gain.cancelScheduledValues(currentTime);
+                handle.masterGain.gain.setValueAtTime(handle.masterGain.gain.value, currentTime);
+                handle.masterGain.gain.linearRampToValueAtTime(0, currentTime + fadeOutTime);
+                
+                // Stop source after fade out
+                handle.source.stop(currentTime + fadeOutTime);
+                
+                // Clean up after fade out completes
+                setTimeout(() => {
+                    try {
+                        if (handle.gainNode) {
+                            handle.gainNode.disconnect();
+                        }
+                        if (handle.masterGain) {
+                            handle.masterGain.disconnect();
+                        }
+                    } catch (e) {
+                        // May already be disconnected
+                    }
+                }, fadeOutTime * 1000);
+            } else if (handle.type === 'html5' && handle.audio) {
+                // HTML5 Audio fade out
+                const audio = handle.audio;
+                const startVolume = audio.volume;
+                const fadeOutDuration = fadeOutTime * 1000; // 0.3s in milliseconds
+                const fadeSteps = 30;
+                const fadeStepTime = fadeOutDuration / fadeSteps;
+                const fadeStepVolume = startVolume / fadeSteps;
+                let currentStep = 0;
+                
+                if (handle.fadeInterval) {
+                    clearInterval(handle.fadeInterval);
+                }
+                
+                handle.fadeInterval = setInterval(() => {
+                    currentStep++;
+                    const targetVolume = Math.max(0, startVolume - (fadeStepVolume * currentStep));
+                    audio.volume = targetVolume;
+                    
+                    if (currentStep >= fadeSteps || targetVolume <= 0) {
+                        clearInterval(handle.fadeInterval);
+                        audio.pause();
+                        audio.currentTime = 0;
+                    }
+                }, fadeStepTime);
+            } else if (handle.stop) {
+                // Fallback: immediate stop
+                handle.stop();
+            }
+        } catch (error) {
+            // Error stopping sound
+        }
+    }
+    
+    /**
      * Set master volume
      * @param {number} volume - Volume (0-1)
      */

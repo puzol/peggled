@@ -19,6 +19,9 @@ export class MaddamPower {
         this.scaleTransitionSpeed = 1.0 / 0.3; // Speed for 0.3s transition (per second)
         this.rotationTransitionSpeed = 1.0 / 0.05; // Speed for 0.05s rotation transition (per second) - very fast
         this.magnetismActivatedThisShot = false; // Track if magnets activated for current shot
+        this.magnetSoundHandle = null; // Handle for looping magnet sound
+        this.magnetSoundTime = 0; // Time accumulator for volume oscillation
+        this.magnetSoundTime = 0; // Time accumulator for volume oscillation
     }
 
     /**
@@ -219,6 +222,7 @@ export class MaddamPower {
         let totalPullX = 0;
         let totalPullY = 0;
         let pullCount = 0;
+        let hasMagnetInRange = false; // Track if any magnet is in range
 
         // Update magnet visuals for all magnetic pegs when ball is active
         for (const peg of this.magneticPegs) {
@@ -284,6 +288,8 @@ export class MaddamPower {
             }
 
             if (inRange) {
+                hasMagnetInRange = true; // At least one magnet is in range
+                
                 // Normalize direction from ball to peg
                 const dirX = dx / distance;
                 const dirY = dy / distance;
@@ -338,6 +344,41 @@ export class MaddamPower {
                 ball.body.velocity.y + gravityCounteract,
                 ball.body.velocity.z || 0
             );
+        }
+        
+        // Update magnet sound - play when at least one magnet is in range
+        this.updateMagnetSound(hasMagnetInRange, deltaTime);
+    }
+    
+    /**
+     * Update magnet sound - plays when magnets are in range with fade in, loop, crossfade, and volume oscillation
+     */
+    updateMagnetSound(hasMagnetInRange, deltaTime) {
+        if (!this.game.audioManager) return;
+        
+        const audioManager = this.game.audioManager;
+        
+        if (hasMagnetInRange) {
+            // Start or update magnet sound
+            if (!this.magnetSoundHandle) {
+                // Start sound with fade in
+                this.magnetSoundHandle = audioManager.playMagnetSound();
+                this.magnetSoundTime = 0;
+            } else {
+                // Update volume oscillation (oscillate from 0.4 to 0.9)
+                this.magnetSoundTime += deltaTime;
+                const oscillationSpeed = 1.0; // Oscillations per second
+                const oscillation = Math.sin(this.magnetSoundTime * oscillationSpeed * Math.PI * 2);
+                const volume = 0.65 + (oscillation * 0.25); // Oscillate from 0.4 to 0.9 (0.65 ± 0.25)
+                audioManager.updateMagnetSoundVolume(this.magnetSoundHandle, volume);
+            }
+        } else {
+            // Stop magnet sound
+            if (this.magnetSoundHandle) {
+                audioManager.stopMagnetSound(this.magnetSoundHandle);
+                this.magnetSoundHandle = null;
+                this.magnetSoundTime = 0;
+            }
         }
     }
 

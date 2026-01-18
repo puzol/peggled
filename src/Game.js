@@ -453,6 +453,7 @@ export class Game {
             await this.audioManager.loadSound('pegSpikeSmall', `${import.meta.env.BASE_URL}sounds/pegSpikeSmall`, 'sfx');
             await this.audioManager.loadSound('pegExplosion', `${import.meta.env.BASE_URL}sounds/pegExplosion`, 'sfx');
             await this.audioManager.loadSound('pegThrust', `${import.meta.env.BASE_URL}sounds/pegThrust`, 'sfx');
+            await this.audioManager.loadSound('pegMagnet', `${import.meta.env.BASE_URL}sounds/pegMagnet`, 'sfx');
         }
         
         // Resume audio context on first user interaction (browser autoplay policy)

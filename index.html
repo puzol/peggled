@@ -174,7 +174,7 @@
         #seed-display {
             position: absolute;
             top: 20px;
-            right: 60px;
+            right: 86px;
             transform: translateX(-50%);
             color: white;
             font-size: 18px;
@@ -594,6 +594,29 @@
             text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
         }
 
+        .modal-header button {
+            background: rgba(255, 100, 100, 0.3);
+            border: 2px solid #ff6464;
+            border-radius: 8px;
+            color: #ff6464;
+            font-size: 32px;
+            font-weight: bold;
+            width: 50px;
+            height: 50px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .modal-header button:hover {
+            background: rgba(255, 100, 100, 0.5);
+            transform: scale(1.1);
+        }
+
         .modal-content {
             display: flex;
             flex-direction: column;
@@ -624,12 +647,38 @@
 
         #objects-footer {
             display: flex;
-            justify-content: center;
+            justify-content: space-between;
             align-items: center;
-            gap: 15px;
             padding-top: 10px;
             border-top: 2px solid #6495ed;
             margin-top: 20px;
+        }
+
+        #objects-footer-left {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+
+        #objects-footer-right {
+            display: flex;
+            gap: 10px;
+        }
+
+        #objects-footer-right button {
+            padding: 10px 20px;
+            background: rgba(100, 149, 237, 0.3);
+            border: 2px solid #6495ed;
+            border-radius: 8px;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        #objects-footer-right button:hover {
+            background: rgba(100, 149, 237, 0.5);
+            transform: scale(1.05);
         }
 
         #level-editor-header {
@@ -936,8 +985,6 @@
                 <div id="file-operations-actions">
                     <button id="level-editor-new">New Level</button>
                     <button id="level-editor-load">Load Level</button>
-                    <button id="level-editor-save">Save Level</button>
-                    <button id="level-editor-test">Test Now</button>
                     <input type="file" id="level-editor-file-input" accept=".json" style="display: none;">
                 </div>
             </div>
@@ -947,6 +994,10 @@
     <!-- Objects Toolbar Modal (shown when clicking Objects button) -->
     <div id="objects-overlay" class="modal-overlay">
         <div id="objects-modal" class="modal">
+            <div class="modal-header">
+                <h2>Objects</h2>
+                <button id="objects-close">×</button>
+            </div>
             <div id="level-editor-toolbar">
                 <div class="toolbar-row" id="pegs-row">
                     <div class="toolbar-row-label">Pegs</div>
@@ -964,10 +1015,20 @@
                     <div class="toolbar-row-label">Spacers</div>
                     <div class="toolbar-items" id="spacers-items"></div>
                 </div>
+                <div class="toolbar-row" id="eraser-row">
+                    <div class="toolbar-row-label">Eraser</div>
+                    <div class="toolbar-items" id="eraser-items"></div>
+                </div>
             </div>
             <div id="objects-footer">
-                <span id="level-editor-selected-preview">Selected: None</span>
-                <div id="level-editor-shape-preview"></div>
+                <div id="objects-footer-left">
+                    <span id="level-editor-selected-preview">Selected: None</span>
+                    <div id="level-editor-shape-preview"></div>
+                </div>
+                <div id="objects-footer-right">
+                    <button id="level-editor-save">Save Level</button>
+                    <button id="level-editor-test">Test Now</button>
+                </div>
             </div>
         </div>
     </div>

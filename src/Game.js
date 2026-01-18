@@ -469,7 +469,13 @@ export class Game {
         
         // Load level (music will start automatically when level loads)
         // Use import.meta.env.BASE_URL to handle base path in production (GitHub Pages)
-        await this.loadLevel(`${import.meta.env.BASE_URL}levels/level1.json`);
+        // Only load level1.json if not in level editor mode and no level is already loaded
+        const shouldLoadDefaultLevel = !this.levelEditor || 
+            (!this.levelEditor.isActive && !this.levelEditor.levelLoaded);
+        
+        if (shouldLoadDefaultLevel) {
+            await this.loadLevel(`${import.meta.env.BASE_URL}levels/level1.json`);
+        }
         
         // Initialize UI
         this.updateBallsRemainingUI();
@@ -1691,7 +1697,7 @@ export class Game {
             currentPowerName = 'Rocket';
         } else if (this.selectedCharacter.id === 'mikey' && this.powerTurnsRemaining > 0) {
             currentPowerName = 'Mirror Ball';
-        } else if (this.selectedCharacter.id === 'maddam' && this.magneticActive && this.powerTurnsRemaining > 0) {
+        } else if (this.selectedCharacter.id === 'maddam' && this.powerTurnsRemaining > 0) {
             currentPowerName = 'Magnetic Pegs';
         }
         
@@ -2290,12 +2296,18 @@ export class Game {
                 const roundedX = this.roundToDecimals(pegData.x);
                 const roundedY = this.roundToDecimals(pegData.y);
                 
+                // Get type and size from level data, default to round base if not specified
+                const pegType = pegData.type || 'round';
+                const pegSize = pegData.size || 'base';
+                
                 const peg = new Peg(
                     this.scene,
                     this.physicsWorld,
                     { x: roundedX, y: roundedY, z: 0 },
                     baseColor,
-                    pegMaterial
+                    pegMaterial,
+                    pegType,
+                    pegSize
                 );
                 
                 // Set base point value (will be updated for special pegs)

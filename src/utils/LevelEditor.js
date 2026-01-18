@@ -122,9 +122,15 @@ export class LevelEditor {
         event.stopPropagation();
         event.preventDefault();
         
-        console.log('Placing object at:', this.mouseWorldPos);
-        // Place object at current mouse position
-        this.placeObject(this.mouseWorldPos.x, this.mouseWorldPos.y);
+        console.log('Placing/erasing object at:', this.mouseWorldPos);
+        
+        // Check if eraser tool is selected
+        if (this.selectedTool && this.selectedTool.category === 'eraser') {
+            this.eraseObject(this.mouseWorldPos.x, this.mouseWorldPos.y);
+        } else {
+            // Place object at current mouse position
+            this.placeObject(this.mouseWorldPos.x, this.mouseWorldPos.y);
+        }
     }
     
     updatePreview(worldX, worldY) {
@@ -151,24 +157,43 @@ export class LevelEditor {
     createPreviewMesh() {
         if (!this.selectedTool || !this.game || !this.game.scene) return;
         
+        // Don't create preview mesh for eraser
+        if (this.selectedTool.category === 'eraser') {
+            return;
+        }
+        
         const tool = this.selectedTool;
         let geometry;
         
         if (tool.category === 'peg') {
             if (tool.type === 'round') {
-                // Round peg preview
+                // Round peg preview - already in XY plane
                 const radius = this.pegSizes[tool.size] || this.pegSizes.base;
                 geometry = new THREE.CircleGeometry(radius, 16);
             } else if (tool.type === 'rect') {
-                // Rectangular peg preview
+                // Rectangular peg preview - use ShapeGeometry for XY plane
                 const height = this.pegSizes[tool.size] || this.pegSizes.base;
                 const width = height * 2; // 2:1 ratio
-                geometry = new THREE.PlaneGeometry(width, height);
+                const shape = new THREE.Shape();
+                shape.moveTo(-width / 2, -height / 2);
+                shape.lineTo(width / 2, -height / 2);
+                shape.lineTo(width / 2, height / 2);
+                shape.lineTo(-width / 2, height / 2);
+                shape.closePath();
+                geometry = new THREE.ShapeGeometry(shape);
             } else if (tool.type === 'dome') {
-                // Dome peg preview (simplified as rounded rectangle)
+                // Dome peg preview - rectangle with rounded top
                 const height = this.pegSizes[tool.size] || this.pegSizes.base;
                 const width = height * 2;
-                geometry = new THREE.PlaneGeometry(width, height);
+                const shape = new THREE.Shape();
+                const cornerRadius = height * 0.2; // 20% curve on top
+                shape.moveTo(-width / 2, -height / 2);
+                shape.lineTo(width / 2, -height / 2);
+                // Rounded top using quadratic curve
+                shape.quadraticCurveTo(width / 2, height / 2, 0, height / 2);
+                shape.quadraticCurveTo(-width / 2, height / 2, -width / 2, -height / 2);
+                shape.closePath();
+                geometry = new THREE.ShapeGeometry(shape);
             } else {
                 return; // Unknown peg type
             }
@@ -190,13 +215,8 @@ export class LevelEditor {
         this.previewMesh.position.z = 0.01; // Slightly above pegs to ensure visibility
         this.previewMesh.renderOrder = 999; // Render on top
         
-        // Rotate plane geometry to face camera (for 2D view, rotate -90 degrees around X axis)
-        if (tool.category === 'peg' && (tool.type === 'rect' || tool.type === 'dome')) {
-            this.previewMesh.rotation.x = -Math.PI / 2;
-        }
-        
         this.game.scene.add(this.previewMesh);
-        console.log('Preview mesh created:', this.previewMesh);
+        console.log('Preview mesh created:', this.previewMesh, 'Type:', tool.type, 'Size:', tool.size);
     }
     
     placeObject(worldX, worldY) {
@@ -215,6 +235,66 @@ export class LevelEditor {
         } else if (tool.category === 'spacer') {
             // TODO: Implement spacer placement
             console.log('Spacer placement not yet implemented');
+        } else if (tool.category === 'eraser') {
+            // Eraser is handled in handlePlacementClick directly
+            this.eraseObject(worldX, worldY);
+        }
+    }
+    
+    eraseObject(worldX, worldY) {
+        if (!this.game || !this.game.pegs) return;
+        
+        const eraseRadius = 0.2; // Radius to check for pegs to erase
+        
+        // Find pegs near the click position
+        const pegsToRemove = [];
+        this.game.pegs.forEach((peg, index) => {
+            if (peg && peg.body && peg.body.position) {
+                const pegPos = peg.body.position;
+                const distance = Math.sqrt(
+                    Math.pow(pegPos.x - worldX, 2) + 
+                    Math.pow(pegPos.y - worldY, 2)
+                );
+                
+                if (distance <= eraseRadius) {
+                    pegsToRemove.push({ peg, index });
+                }
+            }
+        });
+        
+        // Remove found pegs
+        pegsToRemove.forEach(({ peg }) => {
+            // Remove from scene and physics world
+            if (peg.remove) {
+                peg.remove();
+            }
+            
+            // Remove from array
+            const arrayIndex = this.game.pegs.indexOf(peg);
+            if (arrayIndex !== -1) {
+                this.game.pegs.splice(arrayIndex, 1);
+            }
+            
+            // Remove from placed objects
+            this.placedObjects = this.placedObjects.filter(obj => {
+                // Match by position (with some tolerance)
+                if (obj.position && peg.body && peg.body.position) {
+                    const objX = obj.position.x;
+                    const objY = obj.position.y;
+                    const pegX = peg.body.position.x;
+                    const pegY = peg.body.position.y;
+                    const distance = Math.sqrt(
+                        Math.pow(objX - pegX, 2) + 
+                        Math.pow(objY - pegY, 2)
+                    );
+                    return distance > 0.05; // Keep if not close to erased peg
+                }
+                return true;
+            });
+        });
+        
+        if (pegsToRemove.length > 0) {
+            console.log(`Erased ${pegsToRemove.length} peg(s) at (${worldX.toFixed(2)}, ${worldY.toFixed(2)})`);
         }
     }
     
@@ -249,21 +329,24 @@ export class LevelEditor {
             
             console.log('Creating peg at:', { x: roundedX, y: roundedY, z: 0 });
             
+            // Get type and size from tool
+            const pegType = tool.type || 'round';
+            const pegSize = tool.size || 'base';
+            
             const peg = new Peg(
                 this.game.scene,
                 this.game.physicsWorld,
                 { x: roundedX, y: roundedY, z: 0 },
                 baseColor,
-                pegMaterial
+                pegMaterial,
+                pegType,
+                pegSize
             );
             
             peg.pointValue = 300;
             peg.isOrange = false;
             peg.isGreen = false;
             peg.isPurple = false;
-            
-            // TODO: Apply size and shape based on tool.type and tool.size
-            // For now, all pegs are created as base round pegs
             
             this.game.pegs.push(peg);
             console.log('Peg created, total pegs:', this.game.pegs.length, 'Peg mesh:', peg.mesh);
@@ -298,6 +381,7 @@ export class LevelEditor {
         
         // Get UI elements - objects toolbar modal
         this.objectsOverlay = document.getElementById('objects-overlay');
+        this.objectsClose = document.getElementById('objects-close');
         
         // Set up event listeners
         if (this.editorButton) {
@@ -341,6 +425,10 @@ export class LevelEditor {
             });
         }
         
+        if (this.objectsClose) {
+            this.objectsClose.addEventListener('click', () => this.closeObjects());
+        }
+        
         if (this.objectsOverlay) {
             this.objectsOverlay.addEventListener('click', (e) => {
                 if (e.target === this.objectsOverlay) {
@@ -354,6 +442,7 @@ export class LevelEditor {
         this.initShapesToolbar();
         this.initStaticToolbar();
         this.initSpacersToolbar();
+        this.initEraserToolbar();
     }
     
     openFileOperations() {
@@ -466,6 +555,15 @@ export class LevelEditor {
         spacersItems.appendChild(spacerItem);
     }
     
+    initEraserToolbar() {
+        const eraserItems = document.getElementById('eraser-items');
+        if (!eraserItems) return;
+        
+        const eraserItem = this.createToolbarItem('eraser', 'eraser', null, 'eraser');
+        eraserItem.addEventListener('click', () => this.selectTool('eraser', { type: 'eraser' }));
+        eraserItems.appendChild(eraserItem);
+    }
+    
     createToolbarItem(id, label, data, shape) {
         const item = document.createElement('div');
         item.className = 'toolbar-item';
@@ -537,6 +635,19 @@ export class LevelEditor {
             preview.style.background = 'rgba(255, 255, 100, 0.5)';
             preview.style.width = '60%';
             preview.style.height = '40%';
+        } else if (shape === 'eraser') {
+            // Eraser icon - red X or eraser symbol
+            preview.style.background = 'rgba(255, 100, 100, 0.5)';
+            preview.style.width = '70%';
+            preview.style.height = '70%';
+            preview.style.position = 'relative';
+            preview.innerHTML = '×';
+            preview.style.fontSize = '40px';
+            preview.style.color = '#ff6464';
+            preview.style.fontWeight = 'bold';
+            preview.style.display = 'flex';
+            preview.style.alignItems = 'center';
+            preview.style.justifyContent = 'center';
         }
         
         item.appendChild(preview);
@@ -708,7 +819,7 @@ export class LevelEditor {
         }
     }
     
-    newLevel() {
+    async newLevel() {
         // Prompt for level name
         const levelName = prompt('Enter level name:');
         if (levelName === null) {
@@ -719,10 +830,13 @@ export class LevelEditor {
         // Store level name
         this.currentLevelName = levelName || 'Untitled Level';
         
+        // Set levelLoaded flag BEFORE initializing game to prevent level1.json from loading
+        this.levelLoaded = true;
+        
         // Ensure game is initialized (scene and physicsWorld must exist)
         if (this.game && (!this.game.scene || !this.game.physicsWorld)) {
             if (this.game.init && typeof this.game.init === 'function') {
-                this.game.init();
+                await this.game.init();
             }
         }
         
@@ -731,7 +845,7 @@ export class LevelEditor {
         this.undoStack = [];
         this.redoStack = [];
         
-        // Clear all pegs from the game scene
+        // Clear all pegs from the game scene (after init to ensure they're removed)
         if (this.game && this.game.pegs) {
             // Remove all pegs from scene and physics world
             this.game.pegs.forEach(peg => {
@@ -793,18 +907,38 @@ export class LevelEditor {
     }
     
     saveLevel() {
-        // TODO: Save level to git-ignored directory
+        if (!this.currentLevelName) {
+            alert('Please create or load a level first.');
+            return;
+        }
+        
+        // Build level data with type and size information
         const levelData = {
-            name: 'Custom Level',
+            name: this.currentLevelName,
             pegs: this.placedObjects.filter(obj => obj.category === 'peg').map(obj => ({
                 x: obj.position.x,
                 y: obj.position.y,
-                color: obj.color || '#4a90e2'
+                z: obj.position.z || 0,
+                color: obj.color || '#4a90e2',
+                type: obj.type || 'round',
+                size: obj.size || 'base'
             }))
         };
         
-        // For now, just log - will implement file save later
-        console.log('Level data to save:', levelData);
+        // Convert to JSON and create download
+        const jsonString = JSON.stringify(levelData, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${this.currentLevelName.replace(/\s+/g, '_')}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        console.log('Level saved:', levelData);
     }
 }
 

@@ -1059,6 +1059,7 @@ export class Game {
             // If mirror ball power is active, create ghost ball
             if (isMirrorBall && whiteBall) {
                 whiteBall.isMirrorBallActive = true;
+                this.mikeyPower.createGhostBallVisual(whiteBall);
             }
             
             // If magnetic power is active, mark ball (magnets already created when shot ended)
@@ -2510,9 +2511,16 @@ export class Game {
         // Call peg.onHit() to mark it as hit
         peg.onHit();
         
-        // Play peg hit sound
+        // Check if this is a ghost ball hit (spike has parentBall with isMirrorBallActive)
+        const isGhostBallHit = spike.parentBall && spike.parentBall.isMirrorBallActive;
+        
+        // Play peg hit sound (different sound for ghost ball)
         if (this.audioManager) {
-            this.audioManager.playPegHit();
+            if (isGhostBallHit) {
+                this.audioManager.playGhostBallPegHit();
+            } else {
+                this.audioManager.playPegHit();
+            }
         }
         
         // Process scoring and effects (similar to ball-peg collision)

@@ -46,6 +46,16 @@ export class AudioManager {
         this.pegHitIndex = 0; // Current position in scale
         this.lastPegHitPitch = null; // Track last pitch used for new peg hits
         
+        // Ghost ball scale (reversed - high to low)
+        // Reverse the regular scale and start from the highest pitch
+        this.ghostBallScale = [...secondOctave, ...firstOctave].reverse();
+        this.ghostBallHitIndex = 0; // Current position in ghost ball scale
+        this.lastGhostBallPitch = null; // Track last pitch used for ghost ball hits
+        
+        // Reverb impulse response (simple room reverb)
+        this.reverbImpulseResponse = null;
+        this.reverbConvolver = null;
+        
         // Initialize Web Audio API (with fallback to HTML5 Audio)
         this.initAudioContext();
     }
@@ -59,9 +69,43 @@ export class AudioManager {
                 if (this.audioContext.state === 'suspended') {
                     this.audioContext.resume();
                 }
+                // Create reverb convolver (lightweight room reverb)
+                this.createReverbConvolver();
             }
         } catch (error) {
             // Web Audio API not available, falling back to HTML5 Audio
+        }
+    }
+    
+    /**
+     * Create a lightweight reverb effect using ConvolverNode
+     * Uses a simple impulse response for room reverb
+     */
+    createReverbConvolver() {
+        if (!this.audioContext) return;
+        
+        try {
+            // Create a simple room reverb impulse response
+            // Short decay time for performance (0.3 seconds)
+            const sampleRate = this.audioContext.sampleRate;
+            const length = sampleRate * 0.3; // 0.3 seconds
+            const impulse = this.audioContext.createBuffer(2, length, sampleRate);
+            
+            // Generate impulse response (exponential decay)
+            for (let channel = 0; channel < 2; channel++) {
+                const channelData = impulse.getChannelData(channel);
+                for (let i = 0; i < length; i++) {
+                    const n = length - i;
+                    channelData[i] = (Math.random() * 2 - 1) * Math.pow(n / length, 2);
+                }
+            }
+            
+            this.reverbConvolver = this.audioContext.createConvolver();
+            this.reverbConvolver.buffer = impulse;
+            this.reverbConvolver.normalize = true;
+        } catch (error) {
+            // Reverb not available, continue without it
+            this.reverbConvolver = null;
         }
     }
     
@@ -319,6 +363,95 @@ export class AudioManager {
     resetPegHitScale() {
         this.pegHitIndex = 0;
         this.lastPegHitPitch = null; // Reset last pitch tracking
+        // Also reset ghost ball scale
+        this.ghostBallHitIndex = 0;
+        this.lastGhostBallPitch = null;
+    }
+    
+    /**
+     * Play ghost ball peg hit sound going down the major scale (high to low)
+     * Includes reverb effect for ethereal sound
+     */
+    playGhostBallPegHit() {
+        // Get current pitch from reversed major scale (high to low)
+        const pitch = this.ghostBallScale[this.ghostBallHitIndex];
+        
+        // Track last pitch for already-hit pegs
+        this.lastGhostBallPitch = pitch;
+        
+        // Move to next note in scale (wrap around after scale)
+        this.ghostBallHitIndex = (this.ghostBallHitIndex + 1) % this.ghostBallScale.length;
+        
+        if (!this.enabled) return;
+        
+        // Check concurrent sound limit
+        if (this.activeSounds >= this.maxConcurrentSounds) {
+            return;
+        }
+        
+        try {
+            if (this.audioContext && this.audioBuffers.has('pegHit')) {
+                // Use Web Audio API with reverb
+                const { buffer, type } = this.audioBuffers.get('pegHit');
+                const source = this.audioContext.createBufferSource();
+                const gainNode = this.audioContext.createGain();
+                const reverbGainNode = this.audioContext.createGain();
+                const dryGainNode = this.audioContext.createGain();
+                const masterGainNode = this.audioContext.createGain();
+                
+                source.buffer = buffer;
+                source.playbackRate.value = pitch;
+                
+                const baseVolume = 0.6;
+                const finalVolume = baseVolume * (type === 'music' ? this.musicVolume : this.sfxVolume) * this.masterVolume;
+                
+                // Reverb mix: 30% reverb, 70% dry (for subtle effect)
+                reverbGainNode.gain.value = finalVolume * 0.3;
+                dryGainNode.gain.value = finalVolume * 0.7;
+                masterGainNode.gain.value = 1.0;
+                
+                // Connect: source -> [dryGain -> masterGain] + [reverbConvolver -> reverbGain -> masterGain] -> destination
+                source.connect(dryGainNode);
+                dryGainNode.connect(masterGainNode);
+                
+                if (this.reverbConvolver) {
+                    source.connect(this.reverbConvolver);
+                    this.reverbConvolver.connect(reverbGainNode);
+                    reverbGainNode.connect(masterGainNode);
+                } else {
+                    // Fallback: no reverb, just dry signal
+                    source.connect(masterGainNode);
+                }
+                
+                masterGainNode.connect(this.audioContext.destination);
+                
+                source.start(0);
+                
+                this.activeSounds++;
+                source.addEventListener('ended', () => {
+                    this.activeSounds--;
+                }, { once: true });
+            } else if (this.sounds.has('pegHit')) {
+                // Fallback to HTML5 Audio (no reverb support, but still play with reversed pitch)
+                const { audio, type } = this.sounds.get('pegHit');
+                const audioClone = audio.cloneNode();
+                const baseVolume = 0.6;
+                
+                audioClone.volume = baseVolume * (type === 'music' ? this.musicVolume : this.sfxVolume) * this.masterVolume;
+                audioClone.playbackRate = pitch;
+                
+                this.activeSounds++;
+                audioClone.addEventListener('ended', () => {
+                    this.activeSounds--;
+                }, { once: true });
+                
+                audioClone.play().catch(() => {
+                    this.activeSounds--;
+                });
+            }
+        } catch (error) {
+            // Error playing ghost ball sound
+        }
     }
     
     /**

@@ -2938,20 +2938,29 @@ export class Game {
                     
                     // Check if this is the purple peg (main purple peg or temporary purple peg)
                     const isPurplePeg = peg === this.purplePeg || this.temporaryPurplePegs.includes(peg);
+                    const isPeterGeneratedPurple = this.temporaryPurplePegs.includes(peg); // Peter's lucky bounce generated purple peg
                     
                     try {
                         if (isPurplePeg) {
-                            // Purple peg hit - worth 2000 points flat (no multiplier) and activates 1.25x multiplier
-                            const purplePoints = 2000;
-                            const finalPoints = purplePoints; // No multiplier for purple peg
-                            this.score += finalPoints;
-                            this.currentShotScore += finalPoints;
-                            
                             // Activate 1.25x multiplier for following pegs
                             this.purplePegMultiplier = 1.25;
                             
                             // Update multiplier display
                             this.updateOrangePegMultiplier();
+                            
+                            // Calculate points: Peter's generated purple pegs get multiplier, regular purple peg is flat
+                            const purplePoints = 2000;
+                            let finalPoints;
+                            if (isPeterGeneratedPurple) {
+                                // Peter's lucky bounce purple pegs get the multiplier
+                                const totalMultiplier = this.orangePegMultiplier * this.purplePegMultiplier;
+                                finalPoints = Math.floor(purplePoints * totalMultiplier);
+                            } else {
+                                // Regular purple peg is flat (no multiplier)
+                                finalPoints = purplePoints;
+                            }
+                            this.score += finalPoints;
+                            this.currentShotScore += finalPoints;
                             
                             // Ensure purple peg color changes to darker shade (onHit should handle this, but ensure it)
                             peg.mesh.material.color.setHex(0x9370db); // Medium purple (darker when hit)

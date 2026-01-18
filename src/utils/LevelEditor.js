@@ -15,6 +15,8 @@ export class LevelEditor {
         this.originalPegs = []; // Store pegs before testing
         this.previewMesh = null; // Preview object that follows cursor
         this.mouseWorldPos = { x: 0, y: 0 }; // Current mouse position in world coordinates
+        this.currentLevelName = null; // Current level name
+        this.currentLevelName = null; // Current level name
         
         // Peg sizes
         this.basePegSize = 0.09; // Base round peg size
@@ -565,9 +567,7 @@ export class LevelEditor {
                 this.game.hideCharacterSelector();
             }
             
-            // Clear level and create blank level
-            this.newLevel();
-            
+            // Don't automatically create blank level - user must click "New Level" button
             // Update test button text
             this.updateTestButton();
         }
@@ -690,6 +690,16 @@ export class LevelEditor {
     }
     
     newLevel() {
+        // Prompt for level name
+        const levelName = prompt('Enter level name:');
+        if (levelName === null) {
+            // User cancelled
+            return;
+        }
+        
+        // Store level name
+        this.currentLevelName = levelName || 'Untitled Level';
+        
         // Clear all placed objects
         this.placedObjects = [];
         this.undoStack = [];
@@ -712,7 +722,7 @@ export class LevelEditor {
             item.classList.remove('selected');
         });
         
-        console.log('New blank level created');
+        console.log('New blank level created:', this.currentLevelName);
     }
     
     async loadLevelFromFile(file) {

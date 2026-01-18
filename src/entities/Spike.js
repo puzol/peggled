@@ -91,31 +91,64 @@ export class Spike {
         }
         
         // Calculate triangle vertices in local space (tip at origin, base at -length)
-        // For vertical spikes, ensure the triangle has proper width (always use horizontal base)
-        // Use larger base thickness for vertical spikes to ensure visibility
+        // For vertical spikes, create triangle directly in vertical orientation (along Y-axis)
+        // For other spikes, create along X-axis and rotate
         const effectiveBaseThickness = isVertical ? 0.15 : baseThickness; // Larger base for vertical spikes
         const baseHalf = perp.clone().multiplyScalar(effectiveBaseThickness / 2);
-        const tip = new THREE.Vector3(0, 0, 0); // Tip at origin
-        const baseCenter = new THREE.Vector3(-length, 0, 0); // Base center
-        const baseLeft = baseCenter.clone().add(baseHalf); // Base left vertex
-        const baseRight = baseCenter.clone().sub(baseHalf); // Base right vertex
         
-        // Create triangle geometry using vertices
-        // Use counter-clockwise winding for correct face direction
-        const geometry = new THREE.BufferGeometry();
-        const vertices = new Float32Array([
-            baseLeft.x, baseLeft.y, 0,  // Base left
-            tip.x, tip.y, 0,            // Tip
-            baseRight.x, baseRight.y, 0  // Base right
-        ]);
-        geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-        geometry.computeVertexNormals();
+        let tip, baseCenter, baseLeft, baseRight;
+        
+        if (isVertical) {
+            // For vertical spikes, create triangle along Y-axis (pointing up/down)
+            // This avoids rotation issues
+            tip = new THREE.Vector3(0, 0, 0); // Tip at origin
+            baseCenter = new THREE.Vector3(0, -length, 0); // Base center (below tip for up, above for down)
+            baseLeft = baseCenter.clone().add(baseHalf); // Base left vertex (baseHalf is along X)
+            baseRight = baseCenter.clone().sub(baseHalf); // Base right vertex
+        } else {
+            // For non-vertical spikes, create along X-axis (will be rotated)
+            tip = new THREE.Vector3(0, 0, 0); // Tip at origin
+            baseCenter = new THREE.Vector3(-length, 0, 0); // Base center
+            baseLeft = baseCenter.clone().add(baseHalf); // Base left vertex
+            baseRight = baseCenter.clone().sub(baseHalf); // Base right vertex
+        }
+        
+        // Create triangle geometry - for vertical spikes, create directly in final orientation
+        let geometry;
+        if (isVertical) {
+            // For vertical spikes, use normal base thickness (same as other spikes)
+            const baseWidth = baseThickness; // Use normal thickness, not the larger one
+            const baseHalf = baseWidth / 2;
+            
+            // Create triangle with base at origin, tip extending up or down
+            // Base left, base right, then tip - proper counter-clockwise winding
+            const isUp = dir.y > 0;
+            const vertices = new Float32Array([
+                -baseHalf, 0, 0,        // Base left (at origin)
+                baseHalf, 0, 0,         // Base right (at origin)
+                0, isUp ? length : -length, 0  // Tip (extending up or down from base)
+            ]);
+            geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+            geometry.computeVertexNormals();
+            // No translation needed - base is already at origin
+        } else {
+            // Create triangle geometry using vertices for non-vertical spikes
+            const vertices = new Float32Array([
+                baseLeft.x, baseLeft.y, 0,  // Base left
+                tip.x, tip.y, 0,            // Tip
+                baseRight.x, baseRight.y, 0  // Base right
+            ]);
+            geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+            geometry.computeVertexNormals();
+            
+            // Move the geometry so the base is at origin (before creating mesh)
+            // For non-vertical spikes, translate by +length in local X
+            geometry.translate(length, 0, 0);
+        }
+        
         geometry.computeBoundingBox(); // Ensure bounding box is computed
-        
-        // Move the geometry so the base is at origin (before creating mesh)
-        // The triangle geometry has base at (-length, 0, 0) and tip at (0, 0, 0)
-        // We want the base at the mesh position, so translate by +length in local X
-        geometry.translate(length, 0, 0);
         
         const material = new THREE.MeshBasicMaterial({
             color: 0xffffff, // White spikes
@@ -130,9 +163,14 @@ export class Spike {
         this.mesh.position.copy(startPos);
         
         // Calculate rotation to point in the direction
-        // For vertical spikes (90° = up, 270° = down), ensure correct rotation
-        const angle = Math.atan2(dir.y, dir.x);
-        this.mesh.rotation.z = angle;
+        // For vertical spikes, triangle is already in correct orientation (no rotation)
+        if (!isVertical) {
+            const angle = Math.atan2(dir.y, dir.x);
+            this.mesh.rotation.z = angle;
+        } else {
+            // Vertical spikes don't need rotation - triangle already points up/down
+            this.mesh.rotation.z = 0;
+        }
         
         // Ensure mesh is visible for vertical spikes by forcing update
         this.mesh.updateMatrix();
@@ -250,8 +288,15 @@ export class Spike {
             this.mesh.position.copy(currentPos);
             
             // Update rotation to point in direction of travel
-            const angle = Math.atan2(this.direction.y, this.direction.x);
-            this.mesh.rotation.z = angle;
+            // For vertical spikes, triangle is already in correct orientation (no rotation)
+            const isVertical = Math.abs(this.direction.y) > 0.9 && Math.abs(this.direction.x) < 0.5;
+            if (!isVertical) {
+                const angle = Math.atan2(this.direction.y, this.direction.x);
+                this.mesh.rotation.z = angle;
+            } else {
+                // Vertical spikes don't need rotation - triangle already points up/down
+                this.mesh.rotation.z = 0;
+            }
         }
         
         // Check if spike should be removed
@@ -275,10 +320,32 @@ export class Spike {
         let perp;
         // Check for vertical spikes (90° = up, 270° = down)
         const isVertical = Math.abs(dir.y) > 0.9 && Math.abs(dir.x) < 0.5;
+        
+        // For vertical spikes, update triangle vertices directly
         if (isVertical) {
-            // Vertical spike (up or down) - use horizontal perpendicular
-            perp = new THREE.Vector3(1, 0, 0); // Horizontal perpendicular for vertical spikes
+            // Vertical spikes use triangle geometry - update vertices for growth
+            const baseWidth = baseThickness; // Use normal thickness, same as other spikes
+            const baseHalf = baseWidth / 2;
+            const isUp = dir.y > 0;
+            
+            // Update triangle vertices for vertical spikes
+            const positions = this.mesh.geometry.attributes.position;
+            if (positions && positions.array.length >= 9) {
+                positions.array[0] = -baseHalf;  // Base left x
+                positions.array[1] = 0;          // Base left y (at origin)
+                positions.array[2] = 0;          // Base left z
+                positions.array[3] = baseHalf;   // Base right x
+                positions.array[4] = 0;          // Base right y (at origin)
+                positions.array[5] = 0;          // Base right z
+                positions.array[6] = 0;          // Tip x
+                positions.array[7] = isUp ? length : -length;  // Tip y (up or down)
+                positions.array[8] = 0;          // Tip z
+                positions.needsUpdate = true;
+                this.mesh.geometry.computeVertexNormals();
+                this.mesh.geometry.computeBoundingBox();
+            }
         } else {
+            // Horizontal or diagonal spike - update triangle vertices
             // Horizontal or diagonal spike - use standard perpendicular
             const perpVec = new THREE.Vector3(-dir.y, dir.x, 0);
             const perpLength = perpVec.length();
@@ -288,43 +355,51 @@ export class Spike {
                 // Fallback: if perpendicular is too small, use a default
                 perp = new THREE.Vector3(1, 0, 0);
             }
+            
+            // Calculate triangle vertices in local space (tip at origin, base at -length)
+            const effectiveBaseThickness = baseThickness;
+            const baseHalf = perp.clone().multiplyScalar(effectiveBaseThickness / 2);
+            const tip = new THREE.Vector3(0, 0, 0); // Tip at origin
+            const baseCenter = new THREE.Vector3(-length, 0, 0); // Base center
+            const baseLeft = baseCenter.clone().add(baseHalf); // Base left vertex
+            const baseRight = baseCenter.clone().sub(baseHalf); // Base right vertex
+            
+            // Update geometry vertices (only for triangle geometry)
+            const positions = this.mesh.geometry.attributes.position;
+            if (positions && positions.array.length >= 9) {
+                positions.array[0] = baseLeft.x;   // Base left x
+                positions.array[1] = baseLeft.y;   // Base left y
+                positions.array[2] = 0;            // Base left z
+                positions.array[3] = tip.x;        // Tip x
+                positions.array[4] = tip.y;        // Tip y
+                positions.array[5] = 0;            // Tip z
+                positions.array[6] = baseRight.x;  // Base right x
+                positions.array[7] = baseRight.y;  // Base right y
+                positions.array[8] = 0;            // Base right z
+                positions.needsUpdate = true;
+                // Force geometry update
+                this.mesh.geometry.computeVertexNormals();
+                this.mesh.geometry.computeBoundingBox();
+            }
         }
         
-        // Calculate triangle vertices in local space (tip at origin, base at -length)
-        // For vertical spikes, ensure the triangle has proper width
-        // Use larger base thickness for vertical spikes to ensure visibility
-        const effectiveBaseThickness = isVertical ? 0.15 : baseThickness; // Larger base for vertical spikes
-        const baseHalf = perp.clone().multiplyScalar(effectiveBaseThickness / 2);
-        const tip = new THREE.Vector3(0, 0, 0); // Tip at origin
-        const baseCenter = new THREE.Vector3(-length, 0, 0); // Base center
-        const baseLeft = baseCenter.clone().add(baseHalf); // Base left vertex
-        const baseRight = baseCenter.clone().sub(baseHalf); // Base right vertex
-        
-        // Update geometry vertices
-        const positions = this.mesh.geometry.attributes.position;
-        if (positions && positions.array.length >= 9) {
-            positions.array[0] = baseLeft.x;   // Base left x
-            positions.array[1] = baseLeft.y;   // Base left y
-            positions.array[2] = 0;            // Base left z
-            positions.array[3] = tip.x;        // Tip x
-            positions.array[4] = tip.y;        // Tip y
-            positions.array[5] = 0;            // Tip z
-            positions.array[6] = baseRight.x;  // Base right x
-            positions.array[7] = baseRight.y;  // Base right y
-            positions.array[8] = 0;            // Base right z
-            positions.needsUpdate = true;
-            // Force geometry update for vertical spikes
-            this.mesh.geometry.computeVertexNormals();
-            this.mesh.geometry.computeBoundingBox();
+        // Update mesh position - for vertical spikes, base is at startPos (not tip)
+        if (isVertical) {
+            // For vertical spikes, mesh base is at startPos, tip extends from there
+            this.mesh.position.copy(this.startPosition);
+        } else {
+            // For non-vertical spikes, position at tip (old behavior)
+            const tipPos = this.startPosition.clone().add(this.direction.clone().multiplyScalar(length));
+            this.mesh.position.copy(tipPos);
         }
         
-        // Update mesh position to tip position
-        const tipPos = this.startPosition.clone().add(this.direction.clone().multiplyScalar(length));
-        this.mesh.position.copy(tipPos);
-        
-        // Update rotation to point in direction
-        const angle = Math.atan2(this.direction.y, this.direction.x);
-        this.mesh.rotation.z = angle;
+        // Update rotation to point in direction - vertical spikes don't need rotation
+        if (!isVertical) {
+            const angle = Math.atan2(this.direction.y, this.direction.x);
+            this.mesh.rotation.z = angle;
+        } else {
+            this.mesh.rotation.z = 0;
+        }
     }
 
     isExpired() {

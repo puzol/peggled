@@ -12,7 +12,7 @@ import { LuckyClover } from './utils/LuckyClover.js';
 import { EmojiEffect } from './utils/EmojiEffect.js';
 import { SeededRNG } from './utils/SeededRNG.js';
 import { AudioManager } from './utils/AudioManager.js';
-import { PetarPower } from './characters/PetarPower.js';
+import { PeterPower } from './characters/PeterPower.js';
 import { JohnPower } from './characters/JohnPower.js';
 import { SpikeyPower } from './characters/SpikeyPower.js';
 import { BuzzPower } from './characters/BuzzPower.js';
@@ -52,6 +52,7 @@ export class Game {
         // Purple peg system
         this.purplePegMultiplier = 1.0; // Multiplier from purple peg (1.5x after hitting purple peg)
         this.purplePeg = null; // Reference to the current purple peg
+        this.temporaryPurplePegs = []; // Purple pegs created by Peter's lucky bounces (only last for current turn)
         
         // Orange peg multiplier system
         this.orangePegMultiplier = 1.0; // Base multiplier from orange peg progress (2x at 40%, 3x at 60%, 5x at 80%, 10x at 90%)
@@ -109,8 +110,8 @@ export class Game {
         this.selectedCharacter = null;
         this.characters = [
             {
-                id: 'petar',
-                name: 'Petar the Leprechaun',
+                id: 'peter',
+                name: 'Peter the Leprechaun',
                 power: 'Lucky Clover',
                 powerDescription: 'Every 3rd peg hit bounces the ball with 75% of original shot momentum'
             },
@@ -135,7 +136,7 @@ export class Game {
         ];
         
         // Character power systems
-        this.petarPower = new PetarPower(this);
+        this.peterPower = new PeterPower(this);
         this.johnPower = new JohnPower(this);
         this.spikeyPower = new SpikeyPower(this);
         this.buzzPower = new BuzzPower(this);
@@ -1055,8 +1056,8 @@ export class Game {
             
             // Check for green peg (power activation) - purple pegs can also be green
             if (peg.isGreen) {
-                // Petar the Leprechaun: add 3 turns per green peg hit (others add 1)
-                if (this.selectedCharacter?.id === 'petar') {
+                // Peter the Leprechaun: add 3 turns per green peg hit (others add 1)
+                if (this.selectedCharacter?.id === 'peter') {
                     this.powerTurnsRemaining += 3;
                     this.updatePowerTurnsUI();
                     this.updatePowerDisplay();
@@ -1137,8 +1138,8 @@ export class Game {
             
             // Check for green peg (power activation)
             if (peg.isGreen) {
-                // Petar the Leprechaun: add 3 turns per green peg hit (others add 1)
-                if (this.selectedCharacter?.id === 'petar') {
+                // Peter the Leprechaun: add 3 turns per green peg hit (others add 1)
+                if (this.selectedCharacter?.id === 'peter') {
                     this.powerTurnsRemaining += 3;
                     this.updatePowerTurnsUI();
                     this.updatePowerDisplay();
@@ -1468,7 +1469,7 @@ export class Game {
             currentPowerName = powerNames[this.selectedPower] || this.selectedPower;
         } else if (this.selectedCharacter.id === 'spikey' && this.quillShotActive && this.powerTurnsRemaining > 0) {
             currentPowerName = powerNames['quill'];
-        } else if (this.selectedCharacter.id === 'petar' && this.powerTurnsRemaining > 0) {
+        } else if (this.selectedCharacter.id === 'peter' && this.powerTurnsRemaining > 0) {
             currentPowerName = powerNames['lucky'];
         } else if (this.selectedCharacter.id === 'buzz' && this.rocketActive && this.powerTurnsRemaining > 0) {
             currentPowerName = 'Rocket';
@@ -1718,7 +1719,7 @@ export class Game {
         this.orangePegMultiplier = 1.0;
         
         // Reset character powers
-        this.petarPower.reset();
+        this.peterPower.reset();
         this.johnPower.reset();
         this.spikeyPower.reset();
         this.buzzPower.reset();
@@ -1812,7 +1813,7 @@ export class Game {
         this.orangePegMultiplier = 1.0;
         
         // Reset character powers
-        this.petarPower.reset();
+        this.peterPower.reset();
         this.johnPower.reset();
         this.spikeyPower.reset();
         this.buzzPower.reset();
@@ -2007,10 +2008,10 @@ export class Game {
         // No need to set body.gravity here - we'll modify velocity directly
         
         // Enable lucky clover for this ball if power turns are available (power activates on shot, not on green peg hit)
-        if (this.powerTurnsRemaining > 0 && this.selectedCharacter?.id === 'petar') {
+        if (this.powerTurnsRemaining > 0 && this.selectedCharacter?.id === 'peter') {
             this.luckyClover.enabled = true;
         } else {
-            // Disable if no power turns remaining or not Petar
+            // Disable if no power turns remaining or not Peter
             this.luckyClover.enabled = false;
         }
         this.balls.push(ball);
@@ -2279,8 +2280,8 @@ export class Game {
         // Process scoring and effects (similar to ball-peg collision)
         // Check for green peg (power activation)
         if (peg.isGreen) {
-            // Petar the Leprechaun: add 3 turns per green peg hit (others add 1)
-            if (this.selectedCharacter?.id === 'petar') {
+            // Peter the Leprechaun: add 3 turns per green peg hit (others add 1)
+            if (this.selectedCharacter?.id === 'peter') {
                 this.powerTurnsRemaining += 3;
                 this.updatePowerTurnsUI();
                 this.updatePowerDisplay();
@@ -2354,8 +2355,14 @@ export class Game {
         }
         
         // Handle purple peg multiplier
+        // Only reposition purple peg if Peter's power is active
+        // For other characters, purple peg just activates but doesn't reposition
         if (peg.isPurple && peg === this.purplePeg) {
-            this.assignPurplePeg();
+            if (this.selectedCharacter?.id === 'peter' && this.powerTurnsRemaining > 0) {
+                // Peter's special power: purple peg repositions on hit
+                this.assignPurplePeg();
+            }
+            // For other characters, purple peg just activates (no reposition)
         }
         
         // If the active ball is out of play (no active balls), immediately destroy the peg
@@ -2435,8 +2442,8 @@ export class Game {
                     
                     // Check for green peg (power activation) - only on first hit
                     if (peg.isGreen) {
-                        // Petar the Leprechaun: add 3 turns per green peg hit (others add 1)
-                        if (this.selectedCharacter?.id === 'petar') {
+                        // Peter the Leprechaun: add 3 turns per green peg hit (others add 1)
+                        if (this.selectedCharacter?.id === 'peter') {
                             this.powerTurnsRemaining += 3;
                             this.updatePowerTurnsUI();
                             this.updatePowerDisplay();
@@ -2515,10 +2522,10 @@ export class Game {
                         // Continue anyway - don't let tracking errors stop processing
                     }
                     
-                    // Check if this is the purple peg
+                    // Check if this is the purple peg (main purple peg or temporary purple peg)
+                    const isPurplePeg = peg === this.purplePeg || this.temporaryPurplePegs.includes(peg);
+                    
                     try {
-                        const isPurplePeg = peg === this.purplePeg;
-                        
                         if (isPurplePeg) {
                             // Purple peg hit - worth 2000 points flat (no multiplier) and activates 1.25x multiplier
                             const purplePoints = 2000;
@@ -2561,16 +2568,23 @@ export class Game {
                     }
                     
                     // Lucky clover perk handling (every 3rd hit bounces with 75% momentum)
-                    if (this.selectedCharacter?.id === 'petar') {
-                        this.petarPower.handleLuckyCloverBounce(ball, peg);
+                    if (this.selectedCharacter?.id === 'peter') {
+                        this.peterPower.handleLuckyCloverBounce(ball, peg);
+                    }
+                    
+                    // Peter's special power: purple peg repositions on hit when power is active
+                    if (this.selectedCharacter?.id === 'peter' && this.powerTurnsRemaining > 0) {
+                        if (isPurplePeg) {
+                            this.assignPurplePeg();
+                        }
                     }
                 } else if (wasAlreadyTracked) {
                     // Peg already tracked - still update last hit time for stuck ball detection
                     ball.lastNewPegHitTime = performance.now() / 1000;
                     
                     // Also trigger lucky clover counter for already hit pegs
-                    if (this.selectedCharacter?.id === 'petar') {
-                        this.petarPower.handleLuckyCloverBounceAlreadyHit(ball, peg);
+                    if (this.selectedCharacter?.id === 'peter') {
+                        this.peterPower.handleLuckyCloverBounceAlreadyHit(ball, peg);
                     }
                 }
                 
@@ -3170,6 +3184,18 @@ export class Game {
                     });
                     this.greenPegSpikeHitPegs = [];
                 }
+                
+                // Clean up temporary purple pegs (created by Peter's lucky bounces)
+                // They only last for the current turn
+                this.temporaryPurplePegs.forEach(tempPeg => {
+                    if (!tempPeg.hit) {
+                        // Reset to blue color if not hit
+                        tempPeg.mesh.material.color.setHex(0x4a90e2); // Blue
+                        tempPeg.isPurple = false;
+                        tempPeg.pointValue = 300; // Reset to base value (blue peg value)
+                    }
+                });
+                this.temporaryPurplePegs = [];
                 
                 // Reassign purple peg (previous one will turn blue if not hit)
                 this.assignPurplePeg();

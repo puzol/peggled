@@ -1,9 +1,10 @@
 /**
- * Petar the Leprechaun - Lucky Clover Power
+ * Peter the Leprechaun - Lucky Clover Power
  * On green peg hit: activates lucky clover power for 3 turns
  * Every 3rd peg hit bounces the ball with 75% of original shot momentum
+ * When power is active: hitting purple peg will activate and reposition it
  */
-export class PetarPower {
+export class PeterPower {
     constructor(game) {
         this.game = game;
     }
@@ -57,6 +58,10 @@ export class PetarPower {
                 if (this.game.emojiEffect) {
                     this.game.emojiEffect.showEmoji('🍀', { x: pegPos.x, y: pegPos.y, z: pegPos.z || 0 }, 0.5);
                 }
+                
+                // Generate a new temporary purple peg on lucky bounce
+                this.generateTemporaryPurplePeg();
+                
                 return true;
             }
         }
@@ -90,10 +95,44 @@ export class PetarPower {
                 if (this.game.emojiEffect) {
                     this.game.emojiEffect.showEmoji('🍀', { x: pegPos.x, y: pegPos.y, z: pegPos.z || 0 }, 0.5);
                 }
+                
+                // Generate a new temporary purple peg on lucky bounce
+                this.generateTemporaryPurplePeg();
+                
                 return true;
             }
         }
         return false;
+    }
+    
+    /**
+     * Generate a temporary purple peg (only lasts for current turn)
+     */
+    generateTemporaryPurplePeg() {
+        // Find all blue pegs (not orange, not green, not hit, not already purple)
+        const bluePegs = this.game.pegs.filter(peg => 
+            !peg.isOrange && 
+            !peg.isGreen && 
+            !peg.hit &&
+            !peg.isPurple
+        );
+        
+        if (bluePegs.length === 0) {
+            // No blue pegs available
+            return;
+        }
+        
+        // Randomly select one blue peg to be purple (using seeded RNG)
+        const randomIndex = this.game.rng.randomInt(0, bluePegs.length);
+        const newPurplePeg = bluePegs[randomIndex];
+        newPurplePeg.isPurple = true;
+        newPurplePeg.pointValue = 1500; // Purple peg value
+        
+        // Change color to purple (lighter purple for default state)
+        newPurplePeg.mesh.material.color.setHex(0xba55d3); // Lighter purple
+        
+        // Add to temporary purple pegs array
+        this.game.temporaryPurplePegs.push(newPurplePeg);
     }
 
     /**

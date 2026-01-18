@@ -1100,10 +1100,12 @@ export class Game {
                 this.powerQueue = [];
                 this.updatePowerDisplay();
                 
-                // Force hide magnets when power turns reach 0
+                // Force hide magnets when power turns reach 0 and reset activation flag
                 if (this.selectedCharacter?.id === 'maddam' && this.maddamPower) {
                     // Update magnet visuals one more time to scale them to 0
                     this.maddamPower.updateMagnetVisuals(0.001); // Small deltaTime to trigger update
+                    // Reset flag so magnets can be reactivated when power is granted again
+                    this.maddamPower.magnetismActivatedThisShot = false;
                 }
             }
         }
@@ -3411,8 +3413,11 @@ export class Game {
                 this.updateTrajectoryGuide();
                 
                 // Activate magnetism visuals when shot ends and player is ready for next shot
+                // Only activate when no balls are active (shot has ended) AND power is available
+                // The check for balls.length === 0 is already in the else if above, so we're safe here
                 if (this.selectedCharacter?.id === 'maddam' && this.magneticActive && this.powerTurnsRemaining > 0) {
                     // Only activate if not already activated (prevents duplicate calls)
+                    // This ensures magnets only appear when ready for next shot, not when green peg is hit mid-shot
                     if (!this.maddamPower.magnetismActivatedThisShot) {
                         this.maddamPower.activateMagnetism();
                         this.maddamPower.magnetismActivatedThisShot = true;

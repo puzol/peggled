@@ -17,7 +17,7 @@ export class MaddamPower {
         this.magnetTexture = null;
         this.textureLoader = new THREE.TextureLoader();
         this.scaleTransitionSpeed = 1.0 / 0.3; // Speed for 0.3s transition (per second)
-        this.rotationTransitionSpeed = 1.0 / 0.3; // Speed for 0.3s rotation transition (per second)
+        this.rotationTransitionSpeed = 1.0 / 0.05; // Speed for 0.05s rotation transition (per second) - very fast
         this.magnetismActivatedThisShot = false; // Track if magnets activated for current shot
     }
 
@@ -129,10 +129,13 @@ export class MaddamPower {
         const hasActiveMagneticBall = this.game.balls.some(ball => ball && ball.isMagnetic);
         
         // Magnets should be visible if:
-        // 1. Power is active and turns available (ready to shoot), OR
-        // 2. There's an active magnetic ball in play (during shot)
-        const powerActive = this.game.magneticActive && this.game.powerTurnsRemaining > 0;
-        const shouldShow = powerActive || hasActiveMagneticBall;
+        // 1. There's an active magnetic ball in play (during power shot), OR
+        // 2. Power is available AND no balls are active (shot ended, ready for next power shot)
+        // Don't show magnets just because powerTurnsRemaining > 0 - only show when actually using magnetism
+        const powerAvailable = this.game.magneticActive && this.game.powerTurnsRemaining > 0;
+        const shotEnded = this.game.balls.length === 0; // No active balls
+        const powerActive = powerAvailable && shotEnded; // Power available AND shot has ended (ready for next power shot)
+        const shouldShow = hasActiveMagneticBall || powerActive;
         const targetScale = shouldShow ? 1.0 : 0.0;
         const transitionSpeed = this.scaleTransitionSpeed * deltaTime;
 
@@ -142,7 +145,24 @@ export class MaddamPower {
 
         // Update all magnet visuals
         for (const peg of this.magneticPegs) {
-            if (peg.hit || !peg.body || !peg.magnetMesh) continue;
+            if (!peg.body || !peg.magnetMesh) continue;
+            
+            // If peg is hit during magnetism, hide the magnet immediately
+            if (peg.hit) {
+                // Hide magnet when peg is hit (scale to 0)
+                if (peg.magnetCurrentScale === undefined) {
+                    peg.magnetCurrentScale = 0;
+                } else {
+                    // Smoothly hide magnet when peg is hit
+                    peg.magnetCurrentScale = Math.max(0, peg.magnetCurrentScale - validTransitionSpeed);
+                }
+                peg.magnetMesh.scale.set(
+                    peg.magnetCurrentScale,
+                    peg.magnetCurrentScale,
+                    peg.magnetCurrentScale
+                );
+                continue; // Stop updating this magnet after peg is hit
+            }
 
             // Ensure magnetCurrentScale is initialized
             if (peg.magnetCurrentScale === undefined) {
@@ -188,7 +208,7 @@ export class MaddamPower {
         }
 
         const ballPos = ball.body.position;
-        const detectionRadius = 1.2; // Detection radius in points
+        const detectionRadius = 1.5; // Detection radius in points (increased from 1.2)
         
         // Use same visibility logic as updateMagnetVisuals - magnets should animate if visible
         const hasActiveMagneticBall = this.game.balls.some(b => b && b.isMagnetic);
@@ -215,17 +235,13 @@ export class MaddamPower {
             const validDeltaTime = deltaTime > 0 ? deltaTime : 0.016; // Default to ~60fps if invalid
             const rotationTransitionSpeed = this.rotationTransitionSpeed * validDeltaTime;
             
+            // Initialize rotation if needed
+            if (peg.magnetCurrentRotation === undefined) {
+                peg.magnetCurrentRotation = Math.PI; // Start pointing down
+            }
+            
             if (shouldShow && inRange) {
                 const angle = Math.atan2(dy, dx);
-                // Position magnet at radius offset from peg center, rotated toward ball
-                const offsetAngle = angle + Math.PI; // Flip 180° to face ball
-                const offsetX = Math.cos(offsetAngle) * peg.magnetRadius;
-                const offsetY = Math.sin(offsetAngle) * peg.magnetRadius;
-                peg.magnetMesh.position.set(
-                    pegPos.x + offsetX,
-                    pegPos.y + offsetY,
-                    (pegPos.z || 0) - 0.01
-                );
                 // Calculate target rotation to point at ball with top side
                 // angle = Math.atan2(dy, dx) where dx = peg.x - ball.x, dy = peg.y - ball.y
                 // This gives angle from ball to peg. To point from peg to ball, add 180°
@@ -235,24 +251,35 @@ export class MaddamPower {
                 const targetRotation = angleToBall - Math.PI / 2;
                 
                 // Smooth rotation interpolation
-                if (peg.magnetCurrentRotation === undefined) {
-                    peg.magnetCurrentRotation = Math.PI; // Start pointing down
-                }
                 peg.magnetCurrentRotation = this.smoothRotation(peg.magnetCurrentRotation, targetRotation, rotationTransitionSpeed);
-                peg.magnetMesh.rotation.z = peg.magnetCurrentRotation;
-            } else if (shouldShow) {
-                // Reset position below peg when ball not in range
+                
+                // Position magnet at radius offset from peg center, based on CURRENT rotation
+                // Convert rotation back to position angle: rotation + 90° gives the angle from peg to magnet position
+                const positionAngle = peg.magnetCurrentRotation + Math.PI / 2;
+                const offsetX = Math.cos(positionAngle) * peg.magnetRadius;
+                const offsetY = Math.sin(positionAngle) * peg.magnetRadius;
                 peg.magnetMesh.position.set(
-                    pegPos.x,
-                    pegPos.y - peg.magnetRadius,
+                    pegPos.x + offsetX,
+                    pegPos.y + offsetY,
                     (pegPos.z || 0) - 0.01
                 );
+                
+                peg.magnetMesh.rotation.z = peg.magnetCurrentRotation;
+            } else if (shouldShow) {
                 // Smooth rotation to pointing down (resting position)
                 const restingRotation = Math.PI; // Point down: SVG points up (0°), so 180° points down
-                if (peg.magnetCurrentRotation === undefined) {
-                    peg.magnetCurrentRotation = restingRotation;
-                }
                 peg.magnetCurrentRotation = this.smoothRotation(peg.magnetCurrentRotation, restingRotation, rotationTransitionSpeed);
+                
+                // Position magnet at radius offset from peg center, based on CURRENT rotation
+                const positionAngle = peg.magnetCurrentRotation + Math.PI / 2;
+                const offsetX = Math.cos(positionAngle) * peg.magnetRadius;
+                const offsetY = Math.sin(positionAngle) * peg.magnetRadius;
+                peg.magnetMesh.position.set(
+                    pegPos.x + offsetX,
+                    pegPos.y + offsetY,
+                    (pegPos.z || 0) - 0.01
+                );
+                
                 peg.magnetMesh.rotation.z = peg.magnetCurrentRotation;
             }
 
@@ -262,20 +289,20 @@ export class MaddamPower {
                 const dirY = dy / distance;
 
                 // Calculate pull force based on distance (3-stage linear interpolation)
-                // At radius 0.75: force = 15
-                // At radius 1.0: force = 10
-                // At radius 1.2: force = 5
+                // At radius 0.85: force = 15
+                // At radius 1.25: force = 10
+                // At radius 1.5: force = 5
                 let pullForce;
-                if (distance <= 0.75) {
+                if (distance <= 0.85) {
                     // Stage 1: Maximum pull at close range
                     pullForce = 15;
-                } else if (distance <= 1.0) {
+                } else if (distance <= 1.25) {
                     // Stage 2: Interpolate between 15 and 10
-                    const t = (distance - 0.75) / (1.0 - 0.75); // 0 to 1
+                    const t = (distance - 0.85) / (1.25 - 0.85); // 0 to 1
                     pullForce = 15 + t * (10 - 15); // 15 down to 10
                 } else {
                     // Stage 3: Interpolate between 10 and 5
-                    const t = (distance - 1.0) / (1.2 - 1.0); // 0 to 1
+                    const t = (distance - 1.25) / (1.5 - 1.25); // 0 to 1
                     pullForce = 10 + t * (5 - 10); // 10 down to 5
                 }
                 
@@ -305,7 +332,7 @@ export class MaddamPower {
 
             // Reduce gravity to 5 while pull force is active
             // Normal gravity is -9.82, reduce to 5 means we counteract 9.82 - 5 = 4.82
-            const gravityCounteract = 4.82 * deltaTime;
+            const gravityCounteract = 4.5 * deltaTime;
             ball.body.velocity.set(
                 ball.body.velocity.x,
                 ball.body.velocity.y + gravityCounteract,

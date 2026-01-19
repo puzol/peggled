@@ -270,7 +270,9 @@ export class Game {
             { name: 'Level 1', path: 'levels/level1.json' },
             { name: 'Level 2', path: 'levels/level2.json' },
             { name: 'Level 3', path: 'levels/level3.json' },
-            { name: 'Test Level', path: 'levels/test-level.json' }
+            { name: 'Test Level', path: 'levels/test-level.json' },
+            { name: 'DR', path: 'levels/dr.json' },
+            { name: 'Lvl3', path: 'levels/lvl3.json' }
         ];
         
         // Create level option elements
@@ -2468,13 +2470,13 @@ export class Game {
             });
             
             // Create characteristics from level data
-            if (levelData.characteristics && Array.isArray(levelData.characteristics)) {
+            if (levelData.characteristics && Array.isArray(levelData.characteristics) && levelData.characteristics.length > 0) {
                 import('./entities/Characteristic.js').then(({ Characteristic }) => {
                     levelData.characteristics.forEach(charData => {
                         const roundedX = this.roundToDecimals(charData.x);
                         const roundedY = this.roundToDecimals(charData.y);
-                        const shapeType = charData.shape || 'rect'; // 'rect' or 'round'
-                        const size = charData.size || (shapeType === 'round' ? { radius: 0.5 } : { width: 1, height: 1 });
+                        const shapeType = charData.shape || 'rect'; // 'rect' or 'circle'
+                        const size = charData.size || (shapeType === 'circle' ? { radius: 0.5 } : { width: 1, height: 1 });
                         const rotation = charData.rotation || 0;
                         const bounceType = charData.bounceType || 'normal';
                         
@@ -2493,6 +2495,9 @@ export class Game {
                         
                         this.characteristics.push(characteristic);
                     });
+                    console.log(`[Game] Loaded ${levelData.characteristics.length} characteristics`);
+                }).catch(error => {
+                    console.error('[Game] Error loading characteristics:', error);
                 });
             }
             

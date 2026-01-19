@@ -1,0 +1,249 @@
+{
+  "name": "dr",
+  "pegs": [
+    {
+      "x": -2.6489591226097193,
+      "y": 0.26986213101289197,
+      "z": 0,
+      "color": 4886754,
+      "type": "round",
+      "size": "small",
+      "rotation": 0
+    },
+    {
+      "x": -2.4847234530932614,
+      "y": 0.48526538308403033,
+      "z": 0,
+      "color": 4886754,
+      "type": "round",
+      "size": "small",
+      "rotation": 0
+    },
+    {
+      "x": -2.548442844790292,
+      "y": 0.7485366410407278,
+      "z": 0,
+      "color": 4886754,
+      "type": "round",
+      "size": "small",
+      "rotation": 0
+    },
+    {
+      "x": 3.147,
+      "y": 0.323,
+      "z": 0,
+      "color": 4886754,
+      "type": "round",
+      "size": "small",
+      "rotation": 0
+    },
+    {
+      "x": -2.793,
+      "y": 0.8650000000000001,
+      "z": 0,
+      "color": 4886754,
+      "type": "round",
+      "size": "small",
+      "rotation": 0
+    },
+    {
+      "x": -3.0375571552097083,
+      "y": 0.7485366410407278,
+      "z": 0,
+      "color": 4886754,
+      "type": "round",
+      "size": "small",
+      "rotation": 0
+    },
+    {
+      "x": -3.101276546906739,
+      "y": 0.48526538308403033,
+      "z": 0,
+      "color": 4886754,
+      "type": "round",
+      "size": "small",
+      "rotation": 0
+    },
+    {
+      "x": -2.937040877390281,
+      "y": 0.269862131012892,
+      "z": 0,
+      "color": 4886754,
+      "type": "round",
+      "size": "small",
+      "rotation": 0
+    },
+    {
+      "x": 1.8820000000000001,
+      "y": -1.33,
+      "z": 0,
+      "color": 4886754,
+      "type": "dome",
+      "size": "large",
+      "rotation": 0
+    },
+    {
+      "x": 2.162,
+      "y": -1.33,
+      "z": 0,
+      "color": 4886754,
+      "type": "dome",
+      "size": "large",
+      "rotation": 0
+    },
+    {
+      "x": 2.442,
+      "y": -1.33,
+      "z": 0,
+      "color": 4886754,
+      "type": "dome",
+      "size": "large",
+      "rotation": 0
+    },
+    {
+      "x": 2.722,
+      "y": -1.33,
+      "z": 0,
+      "color": 4886754,
+      "type": "dome",
+      "size": "large",
+      "rotation": 0
+    }
+  ],
+  "characteristics": [],
+  "shapes": [
+    {
+      "x": -2.793,
+      "y": 0.55,
+      "z": 0,
+      "type": "circle",
+      "size": {
+        "width": 0.81,
+        "height": 0.81
+      },
+      "justify": "top-center",
+      "gap": 0.1,
+      "rotation": 0,
+      "canTakeObjects": true,
+      "containedPegs": [
+        {
+          "x": -2.6489591226097193,
+          "y": 0.26986213101289197,
+          "z": 0,
+          "color": "#4a90e2",
+          "type": "round",
+          "size": "small",
+          "rotation": 0
+        },
+        {
+          "x": -2.4847234530932614,
+          "y": 0.48526538308403033,
+          "z": 0,
+          "color": "#4a90e2",
+          "type": "round",
+          "size": "small",
+          "rotation": 0
+        },
+        {
+          "x": -2.548442844790292,
+          "y": 0.7485366410407278,
+          "z": 0,
+          "color": "#4a90e2",
+          "type": "round",
+          "size": "small",
+          "rotation": 0
+        },
+        {
+          "x": -2.793,
+          "y": 0.8650000000000001,
+          "z": 0,
+          "color": "#4a90e2",
+          "type": "round",
+          "size": "small",
+          "rotation": 0
+        },
+        {
+          "x": -3.0375571552097083,
+          "y": 0.7485366410407278,
+          "z": 0,
+          "color": "#4a90e2",
+          "type": "round",
+          "size": "small",
+          "rotation": 0
+        },
+        {
+          "x": -3.101276546906739,
+          "y": 0.48526538308403033,
+          "z": 0,
+          "color": "#4a90e2",
+          "type": "round",
+          "size": "small",
+          "rotation": 0
+        },
+        {
+          "x": -2.937040877390281,
+          "y": 0.269862131012892,
+          "z": 0,
+          "color": "#4a90e2",
+          "type": "round",
+          "size": "small",
+          "rotation": 0
+        }
+      ]
+    },
+    {
+      "x": 2.302,
+      "y": -1.33,
+      "z": 0,
+      "type": "line",
+      "size": {
+        "width": 2,
+        "height": 0.36
+      },
+      "align": "middle",
+      "justify": "center",
+      "gap": 0.1,
+      "rotation": 0,
+      "canTakeObjects": true,
+      "containedPegs": [
+        {
+          "x": 1.8820000000000001,
+          "y": -1.33,
+          "z": 0,
+          "color": "#4a90e2",
+          "type": "dome",
+          "size": "large",
+          "rotation": 0
+        },
+        {
+          "x": 2.162,
+          "y": -1.33,
+          "z": 0,
+          "color": "#4a90e2",
+          "type": "dome",
+          "size": "large",
+          "rotation": 0
+        },
+        {
+          "x": 2.442,
+          "y": -1.33,
+          "z": 0,
+          "color": "#4a90e2",
+          "type": "dome",
+          "size": "large",
+          "rotation": 0
+        },
+        {
+          "x": 2.722,
+          "y": -1.33,
+          "z": 0,
+          "color": "#4a90e2",
+          "type": "dome",
+          "size": "large",
+          "rotation": 0
+        }
+      ]
+    }
+  ],
+  "spacers": []
+}

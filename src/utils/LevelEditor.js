@@ -4204,61 +4204,88 @@ export class LevelEditor {
             return;
         }
         
-        // Build level data with type and size information
-        // Collect all pegs that are NOT contained in shapes
+        // Build level data - ALL pegs with their final world coordinates (as if hand-placed)
+        // This includes pegs inside shapes - they're saved with their actual positions
         const pegsInShapes = new Set();
-        this.shapes.forEach(shape => {
-            if (shape.containedPegs) {
-                shape.containedPegs.forEach(peg => {
-                    pegsInShapes.add(peg);
-                });
-            }
-        });
+        if (this.shapes && this.shapes.length > 0) {
+            this.shapes.forEach(shape => {
+                if (shape.containedPegs) {
+                    shape.containedPegs.forEach(peg => {
+                        pegsInShapes.add(peg);
+                    });
+                }
+            });
+        }
+        
+        // Use game.pegs if available, otherwise fallback
+        const allPegs = (this.game && this.game.pegs) ? this.game.pegs : [];
+        const allCharacteristics = (this.game && this.game.characteristics) ? this.game.characteristics : [];
         
         const levelData = {
             name: this.currentLevelName,
-            pegs: this.placedObjects.filter(obj => {
-                if (obj.category !== 'peg') return false;
-                // Check if this peg is contained in a shape
-                const peg = this.pegs.find(p => {
-                    if (p.body && obj.position) {
-                        const dx = p.body.position.x - obj.position.x;
-                        const dy = p.body.position.y - obj.position.y;
+            pegs: allPegs.map(peg => {
+                // Find peg in placedObjects to get color
+                const pegObj = this.placedObjects.find(p => {
+                    if (p.category === 'peg' && peg.body && p.position) {
+                        const dx = peg.body.position.x - p.position.x;
+                        const dy = peg.body.position.y - p.position.y;
                         return Math.sqrt(dx * dx + dy * dy) < 0.05;
                     }
                     return false;
                 });
-                return peg && !pegsInShapes.has(peg);
-            }).map(obj => ({
-                x: obj.position.x,
-                y: obj.position.y,
-                z: obj.position.z || 0,
-                color: obj.color || '#4a90e2',
-                type: obj.type || 'round',
-                size: obj.size || 'base',
-                rotation: obj.rotation || 0
-            })),
-            characteristics: this.placedObjects.filter(obj => {
-                if (obj.category !== 'characteristic') return false;
-                // Check if this characteristic is contained in a shape
-                const char = this.characteristics.find(c => {
-                    if (c.body && obj.position) {
-                        const dx = c.body.position.x - obj.position.x;
-                        const dy = c.body.position.y - obj.position.y;
+                
+                // Get rotation from mesh, fallback to 0 if undefined or NaN
+                let rotation = 0;
+                if (peg.mesh && peg.mesh.rotation) {
+                    rotation = peg.mesh.rotation.z || 0;
+                    // Ensure rotation is a valid number
+                    if (isNaN(rotation)) {
+                        rotation = 0;
+                    }
+                }
+                
+                return {
+                    x: peg.body.position.x,
+                    y: peg.body.position.y,
+                    z: peg.body.position.z || 0,
+                    color: pegObj ? (pegObj.color || 0x4a90e2) : 0x4a90e2,
+                    type: peg.type || 'round',
+                    size: peg.size || 'base',
+                    rotation: rotation
+                };
+            }),
+            characteristics: allCharacteristics.map(char => {
+                // Find characteristic in placedObjects to get bounceType
+                const charObj = this.placedObjects.find(c => {
+                    if (c.category === 'characteristic' && char.body && c.position) {
+                        const dx = char.body.position.x - c.position.x;
+                        const dy = char.body.position.y - c.position.y;
                         return Math.sqrt(dx * dx + dy * dy) < 0.05;
                     }
                     return false;
                 });
-                return char && !char.parentShape;
-            }).map(obj => ({
-                x: obj.position.x,
-                y: obj.position.y,
-                z: obj.position.z || 0,
-                shape: obj.shape || obj.type, // Use 'shape' property if available ('circle' or 'rect'), otherwise fall back to 'type' ('round' or 'rect')
-                size: obj.size,
-                rotation: obj.rotation || 0,
-                bounceType: obj.bounceType || 'normal'
-            })),
+                
+                // Get rotation from characteristic object or mesh, fallback to 0
+                let rotation = 0;
+                if (char.rotation !== undefined && !isNaN(char.rotation)) {
+                    rotation = char.rotation;
+                } else if (char.mesh && char.mesh.rotation) {
+                    rotation = char.mesh.rotation.z || 0;
+                    if (isNaN(rotation)) {
+                        rotation = 0;
+                    }
+                }
+                
+                return {
+                    x: char.body.position.x,
+                    y: char.body.position.y,
+                    z: char.body.position.z || 0,
+                    shape: char.shape || 'rect',
+                    size: char.size,
+                    rotation: rotation,
+                    bounceType: charObj ? (charObj.bounceType || 'normal') : (char.bounceType || 'normal')
+                };
+            }),
             shapes: this.shapes.map(shape => {
                 // Find corresponding placed object to get saved properties
                 const obj = this.placedObjects.find(o => {

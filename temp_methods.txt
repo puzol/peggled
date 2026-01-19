@@ -1,0 +1,208 @@
+    placeSpacer(worldX, worldY) {
+        if (!this.game || !this.game.scene) return;
+        
+        // Import Spacer dynamically
+        import('../entities/Spacer.js').then(({ Spacer }) => {
+            const roundedX = this.roundToDecimals(worldX);
+            const roundedY = this.roundToDecimals(worldY);
+            
+            // Default spacer size (1x1 unit)
+            const defaultSize = { width: 1, height: 1 };
+            
+            const spacer = new Spacer(
+                this.game.scene,
+                { x: roundedX, y: roundedY, z: 0 },
+                defaultSize
+            );
+            
+            // Show resize handles
+            spacer.createHandles();
+            
+            this.spacers.push(spacer);
+            
+            // Store in placed objects
+            this.placedObjects.push({
+                category: 'spacer',
+                type: 'spacer',
+                position: { x: roundedX, y: roundedY, z: 0 },
+                size: defaultSize,
+                isEditorOnly: true
+            });
+            
+            console.log('Spacer placed at:', { x: roundedX, y: roundedY }, 'Size:', defaultSize);
+        });
+    }
+    
+    findSpacerAtPosition(worldX, worldY) {
+        if (!this.spacers || this.spacers.length === 0) return null;
+        
+        // Check each spacer's bounds
+        for (const spacer of this.spacers) {
+            if (spacer.containsPoint(worldX, worldY)) {
+                return spacer;
+            }
+        }
+        
+        return null;
+    }
+    
+    selectCopySource(worldX, worldY) {
+        // First try to find a peg
+        const peg = this.findPegAtPosition(worldX, worldY);
+        if (peg) {
+            this.copySource = { type: 'peg', data: peg };
+            this.createCopyPreview(peg);
+            return;
+        }
+        
+        // Then try to find a spacer
+        const spacer = this.findSpacerAtPosition(worldX, worldY);
+        if (spacer) {
+            this.copySource = { type: 'spacer', data: spacer };
+            this.createCopyPreview(spacer);
+            return;
+        }
+        
+        // No object found - clear copy source
+        this.copySource = null;
+        if (this.copyPreview) {
+            this.game.scene.remove(this.copyPreview);
+            if (this.copyPreview.geometry) this.copyPreview.geometry.dispose();
+            if (this.copyPreview.material) this.copyPreview.material.dispose();
+            this.copyPreview = null;
+        }
+    }
+    
+    createCopyPreview(source) {
+        if (!this.game || !this.game.scene) return;
+        
+        // Remove existing preview
+        if (this.copyPreview) {
+            this.game.scene.remove(this.copyPreview);
+            if (this.copyPreview.geometry) this.copyPreview.geometry.dispose();
+            if (this.copyPreview.material) this.copyPreview.material.dispose();
+        }
+        
+        // Create preview based on source type
+        if (source.type === 'round') {
+            const radius = source.actualSize || 0.09;
+            const geometry = new THREE.CircleGeometry(radius, 16);
+            const material = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.5
+            });
+            this.copyPreview = new THREE.Mesh(geometry, material);
+        } else if (source.type === 'rect' || source.type === 'dome') {
+            const height = (source.actualSize || 0.09) * 2;
+            const width = height * 2;
+            const shape = new THREE.Shape();
+            shape.moveTo(-width / 2, -height / 2);
+            shape.lineTo(width / 2, -height / 2);
+            shape.lineTo(width / 2, height / 2);
+            shape.lineTo(-width / 2, height / 2);
+            shape.closePath();
+            const geometry = new THREE.ShapeGeometry(shape);
+            const material = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.5
+            });
+            this.copyPreview = new THREE.Mesh(geometry, material);
+        } else if (source.size) {
+            // Spacer preview
+            const size = source.size;
+            const shape = new THREE.Shape();
+            const halfWidth = size.width / 2;
+            const halfHeight = size.height / 2;
+            shape.moveTo(-halfWidth, -halfHeight);
+            shape.lineTo(halfWidth, -halfHeight);
+            shape.lineTo(halfWidth, halfHeight);
+            shape.lineTo(-halfWidth, halfHeight);
+            shape.closePath();
+            const geometry = new THREE.ShapeGeometry(shape);
+            const material = new THREE.MeshBasicMaterial({
+                color: 0xffff00,
+                transparent: true,
+                opacity: 0.3
+            });
+            this.copyPreview = new THREE.Mesh(geometry, material);
+        }
+        
+        if (this.copyPreview) {
+            this.copyPreview.position.z = 0.01;
+            this.copyPreview.renderOrder = 999;
+            this.game.scene.add(this.copyPreview);
+        }
+    }
+    
+    placeCopy(worldX, worldY) {
+        if (!this.copySource) return;
+        
+        const roundedX = this.roundToDecimals(worldX);
+        const roundedY = this.roundToDecimals(worldY);
+        
+        if (this.copySource.type === 'peg') {
+            const sourcePeg = this.copySource.data;
+            // Create new peg with same properties
+            import('../entities/Peg.js').then(({ Peg }) => {
+                const pegMaterial = this.game.physicsWorld.getPegMaterial();
+                const peg = new Peg(
+                    this.game.scene,
+                    this.game.physicsWorld,
+                    { x: roundedX, y: roundedY, z: 0 },
+                    sourcePeg.color,
+                    pegMaterial,
+                    sourcePeg.type,
+                    sourcePeg.size
+                );
+                
+                // Copy rotation
+                peg.mesh.rotation.z = sourcePeg.mesh.rotation.z || 0;
+                const euler = new THREE.Euler(0, 0, peg.mesh.rotation.z);
+                const quaternion = new THREE.Quaternion().setFromEuler(euler);
+                peg.body.quaternion.set(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
+                
+                peg.pointValue = sourcePeg.pointValue || 300;
+                peg.isOrange = sourcePeg.isOrange || false;
+                peg.isGreen = sourcePeg.isGreen || false;
+                peg.isPurple = sourcePeg.isPurple || false;
+                
+                this.game.pegs.push(peg);
+                
+                // Store in placed objects
+                this.placedObjects.push({
+                    category: 'peg',
+                    type: sourcePeg.type,
+                    size: sourcePeg.size,
+                    position: { x: roundedX, y: roundedY, z: 0 },
+                    color: sourcePeg.color,
+                    rotation: peg.mesh.rotation.z
+                });
+            });
+        } else if (this.copySource.type === 'spacer') {
+            const sourceSpacer = this.copySource.data;
+            // Create new spacer with same properties
+            import('../entities/Spacer.js').then(({ Spacer }) => {
+                const spacer = new Spacer(
+                    this.game.scene,
+                    { x: roundedX, y: roundedY, z: 0 },
+                    sourceSpacer.size
+                );
+                
+                spacer.createHandles();
+                
+                this.spacers.push(spacer);
+                
+                // Store in placed objects
+                this.placedObjects.push({
+                    category: 'spacer',
+                    type: 'spacer',
+                    position: { x: roundedX, y: roundedY, z: 0 },
+                    size: sourceSpacer.size,
+                    isEditorOnly: true
+                });
+            });
+        }
+    }
+

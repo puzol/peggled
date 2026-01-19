@@ -33,10 +33,11 @@ export class Peg {
             // Circle for round peg - already in XY plane
             geometry = new THREE.CircleGeometry(this.actualSize, 16);
         } else if (this.type === 'rect') {
-            // Rectangle peg - 2:1 width to height ratio, height equals base round peg size
+            // Rectangle peg - 2:1 width to height ratio, height equals round peg diameter
+            // Round peg diameter = 2 * actualSize (radius), so height = 2 * actualSize
             // Use ShapeGeometry to create rectangle in XY plane (no rotation needed)
-            const height = this.actualSize;
-            const width = height * 2;
+            const height = this.actualSize * 2; // Match round peg diameter (height)
+            const width = height * 2; // 2:1 aspect ratio (width:height)
             const shape = new THREE.Shape();
             shape.moveTo(-width / 2, -height / 2);
             shape.lineTo(width / 2, -height / 2);
@@ -46,8 +47,9 @@ export class Peg {
             geometry = new THREE.ShapeGeometry(shape);
         } else if (this.type === 'dome') {
             // Rounded-top rectangular peg - rectangle with rounded top
-            const height = this.actualSize;
-            const width = height * 2;
+            // Height equals round peg diameter (2 * actualSize) to match round peg heights
+            const height = this.actualSize * 2; // Match round peg diameter (height)
+            const width = height * 2; // 2:1 aspect ratio (width:height)
             const shape = new THREE.Shape();
             const cornerRadius = height * 0.2; // 20% curve on top
             shape.moveTo(-width / 2, -height / 2);
@@ -86,46 +88,105 @@ export class Peg {
         
         if (this.type === 'round') {
             // Use sphere for round pegs
-            const shape = new CANNON.Sphere(this.actualSize);
+            // Validate size to prevent invalid spheres
+            const radius = Math.max(0.001, this.actualSize); // Ensure minimum radius
+            const shape = new CANNON.Sphere(radius);
             this.body.addShape(shape);
         } else if (this.type === 'rect') {
             // Use box for rectangular pegs
-            const height = this.actualSize;
-            const width = height * 2;
+            // Height equals round peg diameter (2 * actualSize) to match round peg heights
+            const height = this.actualSize * 2; // Match round peg diameter (height)
+            const width = height * 2; // 2:1 aspect ratio (width:height)
             // Box half extents: [halfWidth, halfHeight, halfDepth]
             // For 2D game with camera looking down +Z, box should be flat in XY plane
             // Use larger depth (0.1) to ensure reliable collision detection
             const shape = new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, 0.1));
             this.body.addShape(shape);
         } else if (this.type === 'dome') {
-            // Dome peg: compound shape with box bottom and sphere top
-            const height = this.actualSize;
-            const width = height * 2;
-            const cornerRadius = height * 0.2; // 20% curve on top (matches visual)
+            // Dome peg: Use ConvexPolyhedron with 6 vertices (hexagon) for better collision
+            // Height equals round peg diameter (2 * actualSize) to match round peg heights
+            const height = this.actualSize * 2; // Match round peg diameter (height)
+            const width = height * 2; // 2:1 aspect ratio (width:height)
+            const depth = 0.15; // Slightly thicker depth for better collision reliability (was 0.1)
+            const z = depth / 2; // Front face z position
             
-            // Bottom rectangular part (most of the height, excluding the rounded top)
-            // The rounded top takes about 20% of the height, so box is 80% of height
-            const boxHeight = height * 0.8;
-            const boxShape = new CANNON.Box(new CANNON.Vec3(width / 2, boxHeight / 2, 0.1));
-            // Position box at bottom (offset down by half the difference)
-            const boxOffset = new CANNON.Vec3(0, -(height - boxHeight) / 2, 0);
-            this.body.addShape(boxShape, boxOffset);
+            // Create 6 vertices forming a symmetrical hexagon dome:
+            // - Bottom: flat (2 vertices at same Y)
+            // - Left side: flat vertical (2 vertices at same X)
+            // - Top: flat horizontal (2 vertices at same Y, for flat top face)
+            // - 2 corner faces connect top to sides
+            const vertices = [];
             
-            // Top rounded part - use a sphere positioned at the top
-            // The sphere radius should match the corner radius
-            const sphereRadius = cornerRadius;
-            const sphereShape = new CANNON.Sphere(sphereRadius);
-            // Position sphere at the top center (offset up by half the box height + sphere radius)
-            const sphereOffset = new CANNON.Vec3(0, boxHeight / 2 + sphereRadius * 0.7, 0);
-            this.body.addShape(sphereShape, sphereOffset);
+            // Define symmetrical dimensions
+            const halfWidth = width / 2;
+            const halfHeight = height / 2;
+            const topY = halfHeight; // Flat top Y position
+            const cornerY = halfHeight * 0.25; // Where corner transition starts (lowered to make sides shorter)
+            const bottomY = -halfHeight; // Flat bottom Y position
             
-            // Add side spheres for the curved edges (optional, for better collision)
-            // Left and right spheres at the top corners
-            const sideSphereOffsetY = boxHeight / 2 + sphereRadius * 0.5;
-            const leftSphereOffset = new CANNON.Vec3(-width / 2, sideSphereOffsetY, 0);
-            const rightSphereOffset = new CANNON.Vec3(width / 2, sideSphereOffsetY, 0);
-            this.body.addShape(sphereShape, leftSphereOffset);
-            this.body.addShape(sphereShape, rightSphereOffset);
+            // Vertex order (CCW when viewed from front):
+            // 0: Bottom left
+            vertices.push(new CANNON.Vec3(-halfWidth, bottomY, z));
+            // 1: Bottom right
+            vertices.push(new CANNON.Vec3(halfWidth, bottomY, z));
+            // 2: Right side top (vertical side continues to corner)
+            vertices.push(new CANNON.Vec3(halfWidth, cornerY, z));
+            // 3: Top right (flat top face starts)
+            vertices.push(new CANNON.Vec3(halfWidth * 0.6, topY, z));
+            // 4: Top left (flat top face ends)
+            vertices.push(new CANNON.Vec3(-halfWidth * 0.6, topY, z));
+            // 5: Left side top (vertical side continues to corner)
+            vertices.push(new CANNON.Vec3(-halfWidth, cornerY, z));
+            
+            const frontVertexCount = vertices.length; // 6 vertices
+            
+            // Create back face vertices (z = -depth/2) - same XY coordinates
+            const backVertexStart = frontVertexCount;
+            for (let i = 0; i < frontVertexCount; i++) {
+                const frontVert = vertices[i];
+                vertices.push(new CANNON.Vec3(frontVert.x, frontVert.y, -z));
+            }
+            
+            // Define faces - vertices must be CCW when viewed from outside
+            // For ConvexPolyhedron: face normals point outward (use right-hand rule)
+            const faces = [];
+            
+            // Front face (z = +depth/2): 6 vertices in CCW order when viewed from +Z (outside)
+            // Order: 0 (bottom-left) -> 1 (bottom-right) -> 2 (right-side-top) -> 3 (top-right) -> 4 (top-left) -> 5 (left-side-top)
+            faces.push([0, 1, 2, 3, 4, 5]);
+            
+            // Back face (z = -depth/2): 6 vertices in CCW order when viewed from -Z (outside)
+            // Reverse order for back face (CCW from -Z side)
+            faces.push([backVertexStart + 0, backVertexStart + 5, backVertexStart + 4, backVertexStart + 3, backVertexStart + 2, backVertexStart + 1]);
+            
+            // Side faces: For each edge, create a quad face
+            // The quad must be CCW when viewed from outside (perpendicular to the edge)
+            // For an edge going from vertex i to next, the outside is to the left of the direction
+            // Try: i -> backI -> backNext -> next (this forms a CCW quad from outside)
+            for (let i = 0; i < frontVertexCount; i++) {
+                const next = (i + 1) % frontVertexCount;
+                faces.push([
+                    i,                      // Current front
+                    backVertexStart + i,    // Current back
+                    backVertexStart + next, // Next back
+                    next                    // Next front
+                ]);
+            }
+            
+            // Create ConvexPolyhedron shape
+            try {
+                const convexShape = new CANNON.ConvexPolyhedron({ vertices, faces });
+                this.body.addShape(convexShape);
+                
+                // Create wireframe visualization for debugging
+                this.createConvexPolyhedronWireframe(vertices, faces);
+            } catch (error) {
+                console.error('Error creating ConvexPolyhedron for dome peg:', error);
+                // Fallback to simple box to allow level to load
+                console.warn('Falling back to box shape for dome peg');
+                const boxShape = new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, depth / 2));
+                this.body.addShape(boxShape);
+            }
         } else {
             // Default to sphere
             const shape = new CANNON.Sphere(this.actualSize);
@@ -134,6 +195,33 @@ export class Peg {
         
         this.body.position.set(position.x, position.y, position.z);
         this.physicsWorldWrapper.addBody(this.body);
+    }
+
+    // Create wireframe visualization for ConvexPolyhedron (for debugging)
+    createConvexPolyhedronWireframe(vertices, faces) {
+        const points = [];
+        
+        // Add edges from faces - each face's perimeter
+        faces.forEach(face => {
+            for (let i = 0; i < face.length; i++) {
+                const v1 = vertices[face[i]];
+                const v2 = vertices[face[(i + 1) % face.length]];
+                points.push(new THREE.Vector3(v1.x, v1.y, v1.z));
+                points.push(new THREE.Vector3(v2.x, v2.y, v2.z));
+            }
+        });
+        
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        
+        const material = new THREE.LineBasicMaterial({
+            color: 0x00ff00, // Green wireframe
+            linewidth: 1
+        });
+        
+        this.wireframe = new THREE.LineSegments(geometry, material);
+        // Attach wireframe as child of mesh so it follows position and rotation
+        this.mesh.add(this.wireframe);
+        this.wireframe.position.set(0, 0, 0); // Relative to parent mesh
     }
 
     // Called when ball hits the peg
@@ -176,7 +264,6 @@ export class Peg {
             originalColor = this.color; // Blue (use stored color)
         }
         this.mesh.material.color.setHex(originalColor);
-        // Peg reset
     }
 
     remove() {
@@ -186,6 +273,14 @@ export class Peg {
             this.magnetMesh.geometry.dispose();
             this.magnetMesh.material.dispose();
             this.magnetMesh = null;
+        }
+        
+        // Remove wireframe if it exists
+        if (this.wireframe) {
+            this.scene.remove(this.wireframe);
+            this.wireframe.geometry.dispose();
+            this.wireframe.material.dispose();
+            this.wireframe = null;
         }
         
         // Remove from scene

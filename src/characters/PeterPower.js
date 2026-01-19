@@ -1,12 +1,14 @@
 /**
  * Peter the Leprechaun - Lucky Clover Power
  * On green peg hit: activates lucky clover power for 3 turns
- * Every 3rd peg hit bounces the ball with 75% of original shot momentum and generates a purple peg
+ * Every 3rd peg hit bounces the ball with 25% of original shot momentum and generates a purple peg
  * When power is active: hitting purple peg will activate and reposition it
  */
 export class PeterPower {
     constructor(game) {
         this.game = game;
+        // Track which pegs have already triggered lucky bounce for current 3-hit cycle
+        this.luckyBounceTriggeredPegs = new Set();
     }
 
     /**
@@ -39,19 +41,27 @@ export class PeterPower {
         const isLuckyHit = hitCount % 3 === 0;
 
         if (isLuckyHit) {
-            // Every 3rd hit is lucky
-            const originalVel = ball.originalVelocity;
-            if (originalVel) {
-                const bounceVelX = originalVel.x * 0.75;
-                const bounceVelY = originalVel.y * 0.75;
-                const bounceVelZ = originalVel.z * 0.75;
-
-                // Round bounce velocity
-                const roundedVX = this.game.roundToDecimals(bounceVelX);
-                const roundedVY = this.game.roundToDecimals(bounceVelY);
-                const roundedVZ = this.game.roundToDecimals(bounceVelZ);
-
-                ball.body.velocity.set(roundedVX, roundedVY, roundedVZ);
+            // Check if this peg has already triggered lucky bounce for this 3-hit cycle
+            const pegId = `${peg.body.position.x}_${peg.body.position.y}`;
+            if (this.luckyBounceTriggeredPegs.has(pegId)) {
+                return false; // Already triggered for this peg in this cycle
+            }
+            
+            // Every 3rd hit is lucky - use flat bounce velocity 
+            // Use current direction but set speed to flat value
+            const currentVel = ball.body.velocity;
+            const currentSpeed = Math.sqrt(currentVel.x * currentVel.x + currentVel.y * currentVel.y);
+            
+            if (currentSpeed > 0) {
+                // Preserve direction, set speed to 6.5
+                const normalizedX = currentVel.x / currentSpeed;
+                const normalizedY = currentVel.y / currentSpeed;
+                const bounceSpeed = 6.5;
+                
+                ball.body.velocity.set(normalizedX * bounceSpeed, normalizedY * bounceSpeed, 0);
+                
+                // Mark this peg as having triggered lucky bounce
+                this.luckyBounceTriggeredPegs.add(pegId);
 
                 // Show clover emoji at peg position
                 const pegPos = peg.body.position;
@@ -79,17 +89,27 @@ export class PeterPower {
 
         const hitCount = ball.hitPegs.length;
         if (hitCount % 3 === 0) {
-            const originalVel = ball.originalVelocity;
-            if (originalVel) {
-                const bounceVelX = originalVel.x * 0.75;
-                const bounceVelY = originalVel.y * 0.75;
-                const bounceVelZ = originalVel.z * 0.75;
-
-                const roundedVX = this.game.roundToDecimals(bounceVelX);
-                const roundedVY = this.game.roundToDecimals(bounceVelY);
-                const roundedVZ = this.game.roundToDecimals(bounceVelZ);
-
-                ball.body.velocity.set(roundedVX, roundedVY, roundedVZ);
+            // Check if this peg has already triggered lucky bounce for this 3-hit cycle
+            const pegId = `${peg.body.position.x}_${peg.body.position.y}`;
+            if (this.luckyBounceTriggeredPegs.has(pegId)) {
+                return false; // Already triggered for this peg in this cycle
+            }
+            
+            // Use flat bounce velocity (10)
+            // Use current direction but set speed to flat value
+            const currentVel = ball.body.velocity;
+            const currentSpeed = Math.sqrt(currentVel.x * currentVel.x + currentVel.y * currentVel.y);
+            
+            if (currentSpeed > 0) {
+                // Preserve direction, set speed to 10
+                const normalizedX = currentVel.x / currentSpeed;
+                const normalizedY = currentVel.y / currentSpeed;
+                const bounceSpeed = 10;
+                
+                ball.body.velocity.set(normalizedX * bounceSpeed, normalizedY * bounceSpeed, 0);
+                
+                // Mark this peg as having triggered lucky bounce
+                this.luckyBounceTriggeredPegs.add(pegId);
 
                 const pegPos = peg.body.position;
                 if (this.game.emojiEffect) {
@@ -140,6 +160,8 @@ export class PeterPower {
      */
     reset() {
         // Power state is managed by Game.js
+        // Clear lucky bounce tracking for new ball
+        this.luckyBounceTriggeredPegs.clear();
     }
 }
 

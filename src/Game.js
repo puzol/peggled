@@ -71,10 +71,21 @@ export class Game {
         this.targetFrameTime = 1000 / this.targetFPS; // milliseconds per frame
         this.lastFrameTime = 0; // Track last frame time for FPS capping
         
+        // Performance monitoring and adaptive slowdown
+        this.fpsHistory = []; // Track FPS over time
+        this.fpsHistorySize = 60; // Track last 60 frames (1 second at 60fps)
+        this.performanceMode = 'normal'; // 'normal', 'slowdown', 'heavy_slowdown'
+        this.adaptiveSlowdownEnabled = true; // Enable adaptive slowdown when performance degrades
+        this.lastFpsCheck = 0;
+        this.fpsCheckInterval = 1000; // Check FPS every second
+        this.lastMemoryCheck = 0;
+        this.memoryCheckInterval = 5000; // Check memory every 5 seconds
+        
         // UI elements
         this.ballsRemainingElement = container.querySelector('#balls-remaining');
         this.scoreElement = container.querySelector('#score');
         this.goalElement = container.querySelector('#goal');
+        this.fpsDisplayElement = container.querySelector('#fps-display');
         this.powerTurnsElement = container.querySelector('#power-turns');
         this.currentPowerDisplay = container.querySelector('#current-power-display');
         this.nextPowerDisplay = container.querySelector('#next-power-display');
@@ -2326,6 +2337,7 @@ export class Game {
             ball.rocketThrustActive = false;
             ball.rocketThrustStartTime = 0;
             ball.rocketThrustPower = 0; // 0 to 1, builds up over 0.2s
+            ball.rocketFuelRestoreCount = 0; // Track how many times fuel has been restored for diminishing returns
             ball.rocketThrustSound = null; // Track sound source to stop it when thrust ends
             this.buzzPower.attachRocketVisual(ball);
         }
@@ -2872,9 +2884,21 @@ export class Game {
                         this.updateGoalUI();
                         this.updateOrangePegMultiplier();
                         
-                        // Buzz's rocket power: orange pegs restore 0.25s fuel during power shot
+                        // Buzz's rocket power: orange pegs restore fuel during power shot with diminishing returns
+                        // Starts at 0.35, decreases by 0.05 each time until reaching 0.15
                         if (this.selectedCharacter?.id === 'buzz' && ball.isRocket && ball.rocketFuelRemaining !== undefined) {
-                            ball.rocketFuelRemaining = Math.min(2.5, ball.rocketFuelRemaining + 0.333);
+                            // Calculate fuel restore amount with diminishing returns
+                            const baseFuel = 0.35; // Starting fuel restore
+                            const minFuel = 0.15; // Minimum fuel restore (reached after 4 restores)
+                            const decreasePerRestore = 0.025; // Decrease by 0.05 each time
+                            
+                            // Increment restore count
+                            ball.rocketFuelRestoreCount = (ball.rocketFuelRestoreCount || 0) + 1;
+                            
+                            // Calculate fuel amount: base - (count * decrease), clamped to minimum
+                            const fuelAmount = Math.max(minFuel, baseFuel - (ball.rocketFuelRestoreCount - 1) * decreasePerRestore);
+                            
+                            ball.rocketFuelRemaining = Math.min(2.5, ball.rocketFuelRemaining + fuelAmount);
                         }
                     }
                 } catch (error) {
@@ -3216,9 +3240,32 @@ export class Game {
             const now = performance.now();
             const elapsed = now - this.lastFrameTime;
             
-            // If we're ahead of schedule, wait to maintain target FPS
+            // Performance monitoring - track FPS and memory
+            if (this.adaptiveSlowdownEnabled) {
+                this.trackPerformance(elapsed, now);
+                
+                // Update FPS display
+                if (this.fpsDisplayElement && this.fpsHistory.length > 0) {
+                    const avgFPS = this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length;
+                    // Guard against invalid FPS values (Infinity, NaN)
+                    const displayFPS = (isFinite(avgFPS) && avgFPS > 0) ? avgFPS : 0;
+                    this.fpsDisplayElement.textContent = `FPS: ${displayFPS.toFixed(1)}`;
+                }
+                
+                // Check memory usage periodically
+                if (now - this.lastMemoryCheck > this.memoryCheckInterval) {
+                    this.lastMemoryCheck = now;
+                    this.checkMemoryUsage();
+                }
+            }
+            
+            // Adaptive slowdown: skip frames if performance is poor
+            const slowdownMultiplier = this.getSlowdownMultiplier();
+            const adjustedTargetFrameTime = this.targetFrameTime * slowdownMultiplier;
+            
+            // If we're ahead of schedule, wait to maintain target FPS (with slowdown adjustment)
             // But don't skip if we're already behind (prevents sluggishness on slower displays)
-            if (elapsed < this.targetFrameTime * 0.9) {
+            if (elapsed < adjustedTargetFrameTime * 0.9) {
                 // Only skip if we're significantly ahead (more than 10% early)
                 // This prevents skipping when display can't maintain target FPS
                 return;
@@ -3228,8 +3275,8 @@ export class Game {
             this.lastFrameTime = now;
             
             // Use fixed deltaTime for determinism (target frame time)
-            // This ensures physics runs at consistent rate regardless of actual frame rate
-            // Even if display runs slower, physics still uses fixed timestep
+            // Keep deltaTime fixed to maintain consistent physics timing
+            // Slowdown is handled via frame skipping, not by changing physics timestep
             const deltaTime = this.targetFrameTime;
             
             // Update lastTime for other timing calculations
@@ -3307,6 +3354,10 @@ export class Game {
                 // Fire next rapid shot if enough time has passed (fires in quick succession)
                 if (currentTimeSeconds - this.lastRapidShotTime >= this.rapidShotDelay) {
                     const shot = this.rapidShotQueue.shift();
+                    // Play ball firing sound for each rapid shot ball
+                    if (this.audioManager) {
+                        this.audioManager.playSound('pegShoot', { volume: 1 });
+                    }
                     this.spawnBall(shot.spawnX, shot.spawnY, shot.spawnZ, shot.originalVelocity, shot.originalVelocity, true); // Yellow ball
                     this.lastRapidShotTime = currentTimeSeconds;
                 }
@@ -3640,32 +3691,7 @@ export class Game {
                 // This only resets on new peg hits, so bouncing between already-hit pegs for 5 seconds triggers removal
                 const spawnCheckPassed = timeSinceSpawn >= 5.0;
                 
-                // Log check results every 0.5 seconds
-                if (!ball.lastStuckCheckLogTime || (currentTimeSeconds - ball.lastStuckCheckLogTime) >= 0.5) {
-                    console.log('[STUCK CHECK] All checks:', {
-                        hasEnoughPegsHit,
-                        minPegsRequired: minPegsHitForStuckCheck,
-                        currentPegsHit: ball.hitPegs?.length || 0,
-                        patternCheck: {
-                            passed: patternCheckPassed,
-                            detected: stuckPatternDetected,
-                            count: ball.stuckPatternCount,
-                            details: patternCheckDetails
-                        },
-                        velocityCheck: {
-                            passed: velocityCheckPassed,
-                            timeSinceHighVelocity: timeSinceHighVelocity.toFixed(2),
-                            currentVelocity: ballVelocity.toFixed(3)
-                        },
-                        spawnCheck: {
-                            passed: spawnCheckPassed,
-                            timeSinceSpawn: timeSinceSpawn.toFixed(2),
-                            note: 'Only resets on NEW peg hits - bouncing between already-hit pegs counts as stuck'
-                        },
-                        shouldRemove: (patternCheckPassed || velocityCheckPassed || spawnCheckPassed) && ball.hitPegs && ball.hitPegs.length > 0
-                    });
-                    ball.lastStuckCheckLogTime = currentTimeSeconds;
-                }
+                // Stuck check logging removed - checks run silently
                 
                 // Check if ball should trigger peg removal (any of these conditions):
                 // 1. Stuck pattern detected for 2 consecutive intervals (primary check - bouncing between same pegs)
@@ -3804,8 +3830,20 @@ export class Game {
             
             // Clean up balls that are out of bounds or caught
             const ballsBeforeCleanup = this.balls.length;
+            const ballsToRemove = [];
             this.balls = this.balls.filter(ball => {
                 if (ball.shouldRemove || ball.isOutOfBounds()) {
+                    ballsToRemove.push(ball);
+                    return false;
+                }
+                return true;
+            });
+            
+            // Only remove pegs if ALL balls are removed (wait until no balls remain)
+            // This allows rapid shot/spread shot to continue with remaining balls
+            if (ballsToRemove.length > 0 && this.balls.length === 0) {
+                // All balls are gone - clean up removed balls
+                ballsToRemove.forEach(ball => {
                     // Clean up ghost ball mesh if it exists (mirror ball)
                     if (ball.ghostMesh) {
                         this.scene.remove(ball.ghostMesh);
@@ -3813,65 +3851,36 @@ export class Game {
                         ball.ghostMesh.material.dispose();
                         ball.ghostMesh = null;
                     }
-                    // Destroy all pegs that were hit by this ball
-                    // Include pegs from hitPegs and pegsToRemove (if stuck check was in progress)
-                    const allPegsToRemove = new Set();
-                    
-                    // Add all current hitPegs
-                    ball.hitPegs.forEach(peg => {
-                        if (this.pegs.includes(peg)) {
-                            allPegsToRemove.add(peg);
-                        }
-                    });
-                    
-                    // If stuck check was in progress, also include pegs from pegsToRemove
-                    if (ball.pegsToRemove && ball.pegsToRemove.length > 0) {
-                        ball.pegsToRemove.forEach(peg => {
-                            if (this.pegs.includes(peg)) {
-                                allPegsToRemove.add(peg);
-                            }
-                        });
-                    }
-                    
-                    // Also check spikeHitPegs if they exist (from quill shot spikes)
-                    if (ball.spikeHitPegs && ball.spikeHitPegs.length > 0) {
-                        ball.spikeHitPegs.forEach(peg => {
-                            if (this.pegs.includes(peg)) {
-                                allPegsToRemove.add(peg);
-                            }
-                        });
-                    }
-                    
-                    const pegsToRemove = Array.from(allPegsToRemove);
-                    pegsToRemove.forEach(peg => {
-                        const pegIndex = this.pegs.indexOf(peg);
-                        if (pegIndex !== -1) {
-                            peg.remove();
-                            this.pegs.splice(pegIndex, 1);
-                        }
-                    });
-                    
-                    // If this is a bomb-ball, also remove pegs hit by the explosion
-                    if (ball.explosionHitPegs && ball.explosionHitPegs.length > 0) {
-                        ball.explosionHitPegs.forEach(peg => {
-                            const pegIndex = this.pegs.indexOf(peg);
-                            if (pegIndex !== -1) {
-                                peg.remove();
-                                this.pegs.splice(pegIndex, 1);
-                            }
-                        });
-                    }
-                    
-                    // Disable lucky clover if no more power turns
-                    if (this.powerTurnsRemaining === 0) {
-                        this.luckyClover.enabled = false;
-                    }
-                    
                     ball.remove();
-                    return false;
+                });
+                
+                // Remove ALL hit pegs when all balls are removed (end of turn)
+                // Iterate backwards to safely remove items from array
+                for (let i = this.pegs.length - 1; i >= 0; i--) {
+                    const peg = this.pegs[i];
+                    if (peg.hit) {
+                        peg.remove();
+                        this.pegs.splice(i, 1);
+                    }
                 }
-                return true;
-            });
+                
+                // Disable lucky clover if no more power turns (only when all balls are removed)
+                if (this.powerTurnsRemaining === 0) {
+                    this.luckyClover.enabled = false;
+                }
+            } else if (ballsToRemove.length > 0) {
+                // Some balls were removed but others remain - just clean up visuals, don't remove pegs
+                ballsToRemove.forEach(ball => {
+                    // Clean up ghost ball mesh if it exists (mirror ball)
+                    if (ball.ghostMesh) {
+                        this.scene.remove(ball.ghostMesh);
+                        ball.ghostMesh.geometry.dispose();
+                        ball.ghostMesh.material.dispose();
+                        ball.ghostMesh = null;
+                    }
+                    ball.remove();
+                });
+            }
             
             // Reset free ball counter and reassign purple peg when all active balls are destroyed
             // (This handles cases where powers might add multiple balls)
@@ -3952,6 +3961,91 @@ export class Game {
         
         this.lastTime = performance.now();
         animate(this.lastTime);
+    }
+
+    /**
+     * Track performance and update slowdown mode
+     */
+    trackPerformance(elapsed, now) {
+        // Calculate current FPS - guard against division by zero or very small values
+        // If elapsed is 0 or very small, skip this frame's FPS calculation
+        if (elapsed <= 0 || elapsed < 0.1) {
+            // Skip invalid/too-fast frames to prevent Infinity FPS
+            return;
+        }
+        
+        const currentFPS = 1000 / elapsed;
+        
+        // Cap FPS at a reasonable maximum (e.g., 1000 FPS) to prevent Infinity values
+        const cappedFPS = Math.min(currentFPS, 1000);
+        
+        // Add to history
+        this.fpsHistory.push(cappedFPS);
+        if (this.fpsHistory.length > this.fpsHistorySize) {
+            this.fpsHistory.shift(); // Remove oldest
+        }
+        
+        // Check FPS periodically to update performance mode
+        if (now - this.lastFpsCheck > this.fpsCheckInterval) {
+            this.lastFpsCheck = now;
+            
+            // Calculate average FPS over history
+            if (this.fpsHistory.length > 0) {
+                const avgFPS = this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length;
+                
+                // Update performance mode based on average FPS
+                if (avgFPS < 30) {
+                    this.performanceMode = 'heavy_slowdown';
+                } else if (avgFPS < 45) {
+                    this.performanceMode = 'slowdown';
+                } else {
+                    this.performanceMode = 'normal';
+                }
+                
+                // Optional: Log performance warnings
+                if (avgFPS < 30 && this.fpsHistory.length === this.fpsHistorySize) {
+                    console.warn(`Performance warning: Average FPS is ${avgFPS.toFixed(1)}. Enabling heavy slowdown.`);
+                }
+            }
+        }
+    }
+    
+    /**
+     * Get slowdown multiplier based on current performance mode
+     */
+    getSlowdownMultiplier() {
+        if (!this.adaptiveSlowdownEnabled) {
+            return 1.0;
+        }
+        
+        switch (this.performanceMode) {
+            case 'heavy_slowdown':
+                return 2.0; // Run physics at half speed (skip every other frame effectively)
+            case 'slowdown':
+                return 1.5; // Run physics at 2/3 speed
+            case 'normal':
+            default:
+                return 1.0; // Normal speed
+        }
+    }
+    
+    /**
+     * Check memory usage (if available)
+     */
+    checkMemoryUsage() {
+        if (performance.memory) {
+            const used = performance.memory.usedJSHeapSize / 1048576; // Convert to MB
+            const total = performance.memory.totalJSHeapSize / 1048576;
+            const limit = performance.memory.jsHeapSizeLimit / 1048576;
+            
+            // Warn if memory usage is high
+            if (used / limit > 0.8) {
+                console.warn(`Memory usage high: ${used.toFixed(1)}MB / ${limit.toFixed(1)}MB (${(used/limit*100).toFixed(1)}%)`);
+            }
+            
+            return { used, total, limit };
+        }
+        return null;
     }
 
     dispose() {

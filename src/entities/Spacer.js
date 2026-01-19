@@ -64,7 +64,7 @@ export class Spacer {
         const halfHeight = this.size.height / 2;
         const handleSize = 0.15;
         
-        // Four corner handles
+        // Four corner handles (indices 0-3)
         const corners = [
             { x: -halfWidth, y: -halfHeight }, // Bottom-left
             { x: halfWidth, y: -halfHeight },  // Bottom-right
@@ -82,6 +82,30 @@ export class Spacer {
             const handle = new THREE.Mesh(handleGeometry, handleMaterial);
             handle.position.set(corner.x, corner.y, 0.01); // Slightly above
             handle.userData.handleIndex = index;
+            handle.userData.handleType = 'corner';
+            this.mesh.add(handle);
+            this.handles.push(handle);
+        });
+        
+        // Four axis handles (indices 4-7): middle of each edge
+        const axisHandles = [
+            { x: 0, y: -halfHeight }, // Bottom (index 4)
+            { x: halfWidth, y: 0 },   // Right (index 5)
+            { x: 0, y: halfHeight },  // Top (index 6)
+            { x: -halfWidth, y: 0 }  // Left (index 7)
+        ];
+        
+        axisHandles.forEach((pos, index) => {
+            const handleGeometry = new THREE.CircleGeometry(handleSize, 8);
+            const handleMaterial = new THREE.MeshBasicMaterial({
+                color: 0xff8800, // Orange handles for axis
+                transparent: true,
+                opacity: 0.8
+            });
+            const handle = new THREE.Mesh(handleGeometry, handleMaterial);
+            handle.position.set(pos.x, pos.y, 0.01); // Slightly above
+            handle.userData.handleIndex = index + 4; // 4, 5, 6, 7
+            handle.userData.handleType = 'axis';
             this.mesh.add(handle);
             this.handles.push(handle);
         });

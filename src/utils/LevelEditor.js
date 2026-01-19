@@ -30,6 +30,9 @@ export class LevelEditor {
         // Selection indicator
         this.selectionIndicator = null; // Outline mesh for selected peg
         
+        // Center snap indicator (vertical line)
+        this.centerSnapIndicator = null; // Vertical line shown when near center
+        
         // Spacer management
         this.spacers = []; // Array of spacer objects
         this.selectedSpacer = null; // Currently selected spacer for resizing
@@ -41,6 +44,12 @@ export class LevelEditor {
         // Shape management
         this.shapes = []; // Array of shape objects
         this.selectedShape = null; // Currently selected shape
+        this.shapeForSettings = null; // Shape currently being edited in settings
+        this.characteristicForSettings = null; // Characteristic currently being edited in settings
+        
+        // Characteristic management
+        this.characteristics = []; // Array of characteristic objects
+        this.selectedCharacteristic = null; // Currently selected characteristic
         
         // Copy tool state
         this.copySource = null; // Object to be copied (peg, spacer, etc.)
@@ -133,11 +142,11 @@ export class LevelEditor {
         
         this.mouseWorldPos = { x: worldX, y: worldY };
         
-        // Handle resizing spacer or shape by dragging handle
-        const objectToResize = this.selectedSpacer || this.selectedShape;
+        // Handle resizing spacer, shape, or characteristic by dragging handle
+        const objectToResize = this.selectedSpacer || this.selectedShape || this.selectedCharacteristic;
         if (this.isResizingSpacer && objectToResize && this.selectedHandle) {
             if (objectToResize.updateSize) {
-                // It's a shape or spacer - use resizeSpacerByHandle (works for both)
+                // It's a spacer, shape, or characteristic - use resizeSpacerByHandle (works for all)
                 this.resizeSpacerByHandle(worldX, worldY);
             }
             return; // Don't update preview while resizing
@@ -148,12 +157,31 @@ export class LevelEditor {
             const newX = worldX - this.dragOffset.x;
             const newY = worldY - this.dragOffset.y;
             
-            // Check if it's a spacer, shape, or peg
+            // Check for center snap (within 0.03 of x=0)
+            const centerSnapThreshold = 0.03;
+            const isNearCenter = Math.abs(newX) < centerSnapThreshold;
+            
+            // Show/hide center snap indicator
+            if (isNearCenter) {
+                this.showCenterSnapIndicator();
+            } else {
+                this.hideCenterSnapIndicator();
+            }
+            
+            // Check if it's a spacer, shape, characteristic, or peg
             if (this.movingPeg.position !== undefined && this.movingPeg.containsPoint) {
-                // It's a spacer or shape
-                if (this.movingPeg.updateSize) {
+                // It's a spacer, shape, or characteristic
+                if (this.movingPeg.updateSize && this.movingPeg.containedPegs !== undefined) {
                     // It's a shape
                     this.moveShape(this.movingPeg, newX, newY);
+                } else if (this.movingPeg.updateSize && this.movingPeg.body) {
+                    // It's a characteristic (has updateSize, body, but no containedPegs)
+                    this.moveCharacteristic(this.movingPeg, newX, newY);
+                    // Update indicator position
+                    if (this.selectionIndicator && this.movingPeg.mesh) {
+                        this.selectionIndicator.position.copy(this.movingPeg.mesh.position);
+                        this.selectionIndicator.position.z = this.movingPeg.mesh.position.z + 0.01;
+                    }
                 } else {
                     // It's a spacer
                     this.moveSpacer(this.movingPeg, newX, newY);
@@ -200,8 +228,12 @@ export class LevelEditor {
         // Don't place if clicking inside modals
         const objectsModal = document.getElementById('objects-modal');
         const fileOperationsModal = document.getElementById('file-operations-modal');
+        const shapeSettingsOverlay = document.getElementById('shape-settings-overlay');
+        const characteristicSettingsOverlay = document.getElementById('characteristic-settings-overlay');
         if ((objectsModal && objectsModal.contains(event.target)) || 
-            (fileOperationsModal && fileOperationsModal.contains(event.target))) {
+            (fileOperationsModal && fileOperationsModal.contains(event.target)) ||
+            (shapeSettingsOverlay && shapeSettingsOverlay.contains(event.target)) ||
+            (characteristicSettingsOverlay && characteristicSettingsOverlay.contains(event.target))) {
             console.log('Click inside modal, ignoring');
             return;
         }
@@ -217,7 +249,10 @@ export class LevelEditor {
             this.eraseObject(this.mouseWorldPos.x, this.mouseWorldPos.y);
         } else if (this.selectedTool && this.selectedTool.category === 'copy') {
             // Copy tool - select source object or place copy
+            // Only proceed if we have a copy source and the click is not on a modal
             if (this.copySource) {
+                // Double-check modal click - prevent paste when clicking on modals
+                // The check at the top should catch this, but extra safety here
                 this.placeCopy(this.mouseWorldPos.x, this.mouseWorldPos.y);
             } else {
                 this.selectCopySource(this.mouseWorldPos.x, this.mouseWorldPos.y);
@@ -228,6 +263,20 @@ export class LevelEditor {
         } else if (this.selectedTool && this.selectedTool.category === 'rotate') {
             // Rotate tool - select peg at click position
             this.selectPegForRotation(this.mouseWorldPos.x, this.mouseWorldPos.y);
+        } else if (this.selectedTool && this.selectedTool.category === 'settings') {
+            // Settings tool - open settings for shape or characteristic
+            const shape = this.findShapeAtPosition(this.mouseWorldPos.x, this.mouseWorldPos.y);
+            if (shape) {
+                this.openShapeSettings(shape);
+            } else {
+                const characteristic = this.findCharacteristicAtPosition(this.mouseWorldPos.x, this.mouseWorldPos.y);
+                if (characteristic) {
+                    this.openCharacteristicSettings(characteristic);
+                }
+            }
+        } else if (this.selectedTool && this.selectedTool.category === 'resize') {
+            // Resize tool - handled in mousedown
+            // Click is just for selection if not resizing
         } else {
             // Place object at current mouse position
             this.placeObject(this.mouseWorldPos.x, this.mouseWorldPos.y);
@@ -235,16 +284,25 @@ export class LevelEditor {
     }
     
     handleMouseDown(event) {
-        // Handle for move tool or resize tool
+        // Handle for move tool or resize tool only
         if (!this.isActive || this.testingMode || !this.selectedTool) {
+            return;
+        }
+        
+        // Only handle move and resize tools here - other tools use click handler
+        if (this.selectedTool.category !== 'move' && this.selectedTool.category !== 'resize') {
             return;
         }
         
         // Don't handle if clicking inside modals
         const objectsModal = document.getElementById('objects-modal');
         const fileOperationsModal = document.getElementById('file-operations-modal');
+        const shapeSettingsOverlay = document.getElementById('shape-settings-overlay');
+        const characteristicSettingsOverlay = document.getElementById('characteristic-settings-overlay');
         if ((objectsModal && objectsModal.contains(event.target)) || 
-            (fileOperationsModal && fileOperationsModal.contains(event.target))) {
+            (fileOperationsModal && fileOperationsModal.contains(event.target)) ||
+            (shapeSettingsOverlay && shapeSettingsOverlay.contains(event.target)) ||
+            (characteristicSettingsOverlay && characteristicSettingsOverlay.contains(event.target))) {
             return;
         }
         
@@ -275,25 +333,40 @@ export class LevelEditor {
                     this.selectedSpacer = spacer;
                     event.stopPropagation();
                     event.preventDefault();
-                } else {
-                    // Try shape
-                    const shape = this.findShapeAtPosition(this.mouseWorldPos.x, this.mouseWorldPos.y);
-                    if (shape) {
-                        this.movingPeg = shape; // Reuse movingPeg for shape
-                        this.isDragging = true;
-                        this.dragOffset = {
-                            x: this.mouseWorldPos.x - shape.position.x,
-                            y: this.mouseWorldPos.y - shape.position.y
-                        };
-                        this.selectedShape = shape;
-                        event.stopPropagation();
-                        event.preventDefault();
+                    } else {
+                        // Try shape
+                        const shape = this.findShapeAtPosition(this.mouseWorldPos.x, this.mouseWorldPos.y);
+                        if (shape) {
+                            this.movingPeg = shape; // Reuse movingPeg for shape
+                            this.isDragging = true;
+                            this.dragOffset = {
+                                x: this.mouseWorldPos.x - shape.position.x,
+                                y: this.mouseWorldPos.y - shape.position.y
+                            };
+                            this.selectedShape = shape;
+                            event.stopPropagation();
+                            event.preventDefault();
+                        } else {
+                            // Try characteristic
+                            const characteristic = this.findCharacteristicAtPosition(this.mouseWorldPos.x, this.mouseWorldPos.y);
+                            if (characteristic) {
+                                this.movingPeg = characteristic;
+                                this.isDragging = true;
+                                this.dragOffset = {
+                                    x: this.mouseWorldPos.x - characteristic.position.x,
+                                    y: this.mouseWorldPos.y - characteristic.position.y
+                                };
+                                this.selectedCharacteristic = characteristic;
+                                this.updateSelectionIndicator(characteristic);
+                                event.stopPropagation();
+                                event.preventDefault();
+                            }
+                        }
                     }
                 }
-            }
-        } else if (this.selectedTool.category === 'resize') {
-            // Resize tool - check if clicking on a handle first (spacer or shape)
-            const objectToResize = this.selectedSpacer || this.selectedShape;
+            } else if (this.selectedTool.category === 'resize') {
+            // Resize tool - check if clicking on a handle first (spacer, shape, or characteristic)
+            const objectToResize = this.selectedSpacer || this.selectedShape || this.selectedCharacteristic;
             if (objectToResize && objectToResize.handles && objectToResize.handles.length > 0) {
                 const handle = this.findHandleAtPosition(objectToResize, this.mouseWorldPos.x, this.mouseWorldPos.y);
                 if (handle) {
@@ -301,7 +374,12 @@ export class LevelEditor {
                     this.selectedHandle = handle;
                     this.isResizingSpacer = true;
                     this.resizeStartPos = { x: this.mouseWorldPos.x, y: this.mouseWorldPos.y };
-                    this.resizeStartSize = { width: objectToResize.size.width, height: objectToResize.size.height };
+                    // Store start size - handle circles differently (they use radius)
+                    if (objectToResize.shape === 'circle') {
+                        this.resizeStartSize = { radius: objectToResize.size.radius || (objectToResize.size.width ? objectToResize.size.width / 2 : 0.5) };
+                    } else {
+                        this.resizeStartSize = { width: objectToResize.size.width, height: objectToResize.size.height };
+                    }
                     event.stopPropagation();
                     event.preventDefault();
                     return;
@@ -311,6 +389,21 @@ export class LevelEditor {
             // Otherwise, find spacer or shape at mouse position
             const spacer = this.findSpacerAtPosition(this.mouseWorldPos.x, this.mouseWorldPos.y);
             if (spacer) {
+                // Check if clicking on an existing handle first
+                if (spacer.handles && spacer.handles.length > 0) {
+                    const handle = this.findHandleAtPosition(spacer, this.mouseWorldPos.x, this.mouseWorldPos.y);
+                    if (handle) {
+                        // Start resizing by dragging this handle
+                        this.selectedHandle = handle;
+                        this.isResizingSpacer = true;
+                        this.resizeStartPos = { x: this.mouseWorldPos.x, y: this.mouseWorldPos.y };
+                        this.resizeStartSize = { width: spacer.size.width, height: spacer.size.height };
+                        this.selectedSpacer = spacer;
+                        event.stopPropagation();
+                        event.preventDefault();
+                        return;
+                    }
+                }
                 // Hide handles on previously selected objects
                 if (this.selectedSpacer && this.selectedSpacer !== spacer) {
                     this.selectedSpacer.removeHandles();
@@ -326,6 +419,21 @@ export class LevelEditor {
             } else {
                 const shape = this.findShapeAtPosition(this.mouseWorldPos.x, this.mouseWorldPos.y);
                 if (shape) {
+                    // Check if clicking on an existing handle first
+                    if (shape.handles && shape.handles.length > 0) {
+                        const handle = this.findHandleAtPosition(shape, this.mouseWorldPos.x, this.mouseWorldPos.y);
+                        if (handle) {
+                            // Start resizing by dragging this handle
+                            this.selectedHandle = handle;
+                            this.isResizingSpacer = true;
+                            this.resizeStartPos = { x: this.mouseWorldPos.x, y: this.mouseWorldPos.y };
+                            this.resizeStartSize = { width: shape.size.width, height: shape.size.height };
+                            this.selectedShape = shape;
+                            event.stopPropagation();
+                            event.preventDefault();
+                            return;
+                        }
+                    }
                     // Hide handles on previously selected objects
                     if (this.selectedSpacer) {
                         this.selectedSpacer.removeHandles();
@@ -338,11 +446,51 @@ export class LevelEditor {
                     shape.createHandles(); // Show handles for selected shape
                     event.stopPropagation();
                     event.preventDefault();
-                } else if (this.selectedShape) {
-                    // If shape is already selected (from rotate tool), show handles for it
-                    this.selectedShape.createHandles();
-                    event.stopPropagation();
-                    event.preventDefault();
+                } else {
+                    const characteristic = this.findCharacteristicAtPosition(this.mouseWorldPos.x, this.mouseWorldPos.y);
+                    if (characteristic) {
+                        // Check if clicking on an existing handle first
+                        if (characteristic.handles && characteristic.handles.length > 0) {
+                            const handle = this.findHandleAtPosition(characteristic, this.mouseWorldPos.x, this.mouseWorldPos.y);
+                            if (handle) {
+                                // Start resizing by dragging this handle
+                                this.selectedHandle = handle;
+                                this.isResizingSpacer = true;
+                                this.resizeStartPos = { x: this.mouseWorldPos.x, y: this.mouseWorldPos.y };
+                                // Store start size - handle circles differently (they use radius)
+                                if (characteristic.shape === 'circle') {
+                                    this.resizeStartSize = { radius: characteristic.size.radius || (characteristic.size.width ? characteristic.size.width / 2 : 0.5) };
+                                } else {
+                                    this.resizeStartSize = { width: characteristic.size.width, height: characteristic.size.height };
+                                }
+                                this.selectedCharacteristic = characteristic;
+                                event.stopPropagation();
+                                event.preventDefault();
+                                return;
+                            }
+                        }
+                        // Hide handles on previously selected objects
+                        if (this.selectedCharacteristic && this.selectedCharacteristic !== characteristic) {
+                            this.selectedCharacteristic.removeHandles();
+                        }
+                        if (this.selectedSpacer) {
+                            this.selectedSpacer.removeHandles();
+                            this.selectedSpacer = null;
+                        }
+                        if (this.selectedShape) {
+                            this.selectedShape.removeHandles();
+                            this.selectedShape = null;
+                        }
+                        this.selectedCharacteristic = characteristic;
+                        characteristic.createHandles(); // Show handles for selected characteristic
+                        event.stopPropagation();
+                        event.preventDefault();
+                    } else if (this.selectedShape) {
+                        // If shape is already selected (from rotate tool), show handles for it
+                        this.selectedShape.createHandles();
+                        event.stopPropagation();
+                        event.preventDefault();
+                    }
                 }
             }
         }
@@ -359,9 +507,116 @@ export class LevelEditor {
         // Handle move end
         if (this.isDragging) {
             const wasMoving = this.movingPeg;
+            const centerSnapThreshold = 0.03;
+            
+            // Get final X position before resetting
+            let finalX = null;
+            if (wasMoving) {
+                if (wasMoving.position !== undefined) {
+                    finalX = wasMoving.position.x;
+                } else if (wasMoving.body) {
+                    finalX = wasMoving.body.position.x;
+                }
+            }
+            
+            const shouldSnapToCenter = finalX !== null && Math.abs(finalX) < centerSnapThreshold;
+            
             this.isDragging = false;
             this.movingPeg = null;
             this.dragOffset = { x: 0, y: 0 };
+            
+            // Hide center snap indicator
+            this.hideCenterSnapIndicator();
+            
+            // Check if it's a spacer by checking if it's in the spacers array
+            const isSpacer = wasMoving && this.spacers && this.spacers.includes(wasMoving);
+            const isShape = wasMoving && this.shapes && this.shapes.includes(wasMoving);
+            
+            console.log('[MOVE END] Object being moved:', {
+                wasMoving: !!wasMoving,
+                isSpacer,
+                isShape,
+                finalX,
+                shouldSnapToCenter
+            });
+            
+            // Snap to center if near center
+            if (shouldSnapToCenter && wasMoving) {
+                console.log('[MOVE END] Snapping to center');
+                if (isSpacer) {
+                    // Spacer
+                    const oldY = wasMoving.position.y;
+                    wasMoving.moveTo({ x: 0, y: oldY, z: 0 });
+                    const placedObj = this.placedObjects.find(obj => {
+                        if (obj.category === 'spacer' && obj.position && wasMoving.position) {
+                            const objX = obj.position.x;
+                            const objY = obj.position.y;
+                            const spacerX = wasMoving.position.x;
+                            const spacerY = wasMoving.position.y;
+                            const distance = Math.sqrt(
+                                Math.pow(objX - spacerX, 2) + 
+                                Math.pow(objY - spacerY, 2)
+                            );
+                            return distance < 0.05;
+                        }
+                        return false;
+                    });
+                    if (placedObj) {
+                        placedObj.position.x = 0;
+                    }
+                } else if (isShape) {
+                    // Shape
+                    const oldY = wasMoving.position.y;
+                    wasMoving.moveTo({ x: 0, y: oldY, z: 0 });
+                    const placedObj = this.placedObjects.find(obj => {
+                        if (obj.category === 'shape' && obj.position && wasMoving.position) {
+                            const objX = obj.position.x;
+                            const objY = obj.position.y;
+                            const shapeX = wasMoving.position.x;
+                            const shapeY = wasMoving.position.y;
+                            const distance = Math.sqrt(
+                                Math.pow(objX - shapeX, 2) + 
+                                Math.pow(objY - shapeY, 2)
+                            );
+                            return distance < 0.05;
+                        }
+                        return false;
+                    });
+                    if (placedObj) {
+                        placedObj.position.x = 0;
+                    }
+                } else if (wasMoving.body && wasMoving.mesh) {
+                    // Peg
+                    wasMoving.body.position.x = 0;
+                    wasMoving.mesh.position.x = 0;
+                    const placedObj = this.placedObjects.find(obj => {
+                        if (obj.category === 'peg' && obj.position && wasMoving.body) {
+                            const objX = obj.position.x;
+                            const objY = obj.position.y;
+                            const pegX = wasMoving.body.position.x;
+                            const pegY = wasMoving.body.position.y;
+                            const distance = Math.sqrt(
+                                Math.pow(objX - pegX, 2) + 
+                                Math.pow(objY - pegY, 2)
+                            );
+                            return distance < 0.05;
+                        }
+                        return false;
+                    });
+                    if (placedObj) {
+                        placedObj.position.x = 0;
+                    }
+                }
+            }
+            
+            // If moving a spacer, snap it to inside edge if it crosses level border
+            if (isSpacer) {
+                console.log('[MOVE END] Calling snapSpacerToBounds');
+                this.snapSpacerToBounds(wasMoving);
+            } else {
+                console.log('[MOVE END] Not calling snapSpacerToBounds - not a spacer');
+            }
+            
             // Clear selection indicator when moving stops
             this.updateSelectionIndicator(null);
         }
@@ -373,8 +628,8 @@ export class LevelEditor {
             return;
         }
         
-        // Check if we have a peg or shape selected
-        const objectToRotate = this.selectedPeg || this.selectedShape;
+        // Check if we have a peg, shape, or characteristic selected
+        const objectToRotate = this.selectedPeg || this.selectedShape || this.selectedCharacteristic;
         if (!objectToRotate) return;
         
         if (event.key === 'ArrowLeft') {
@@ -385,6 +640,9 @@ export class LevelEditor {
             } else if (this.selectedShape) {
                 this.rotateShape(this.selectedShape, 5);
                 this.startRotateKeyRepeat(() => this.rotateShape(this.selectedShape, 5));
+            } else if (this.selectedCharacteristic) {
+                this.rotateCharacteristic(this.selectedCharacteristic, 5);
+                this.startRotateKeyRepeat(() => this.rotateCharacteristic(this.selectedCharacteristic, 5));
             }
             event.preventDefault();
         } else if (event.key === 'ArrowRight') {
@@ -395,6 +653,9 @@ export class LevelEditor {
             } else if (this.selectedShape) {
                 this.rotateShape(this.selectedShape, -5);
                 this.startRotateKeyRepeat(() => this.rotateShape(this.selectedShape, -5));
+            } else if (this.selectedCharacteristic) {
+                this.rotateCharacteristic(this.selectedCharacteristic, -5);
+                this.startRotateKeyRepeat(() => this.rotateCharacteristic(this.selectedCharacteristic, -5));
             }
             event.preventDefault();
         }
@@ -424,6 +685,42 @@ export class LevelEditor {
     hidePreview() {
         if (this.previewMesh) {
             this.previewMesh.visible = false;
+        }
+    }
+    
+    /**
+     * Show center snap indicator (vertical line at x=0)
+     */
+    showCenterSnapIndicator() {
+        if (this.centerSnapIndicator) {
+            this.centerSnapIndicator.visible = true;
+            return;
+        }
+        
+        // Create vertical line at x=0 from bottom to top of level
+        const points = [
+            new THREE.Vector3(0, -4.5, 0.01), // Bottom of level
+            new THREE.Vector3(0, 4.5, 0.01)   // Top of level
+        ];
+        
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const material = new THREE.LineBasicMaterial({
+            color: 0x00ff00, // Green
+            linewidth: 2,
+            transparent: true,
+            opacity: 0.5
+        });
+        
+        this.centerSnapIndicator = new THREE.Line(geometry, material);
+        this.game.scene.add(this.centerSnapIndicator);
+    }
+    
+    /**
+     * Hide center snap indicator
+     */
+    hideCenterSnapIndicator() {
+        if (this.centerSnapIndicator) {
+            this.centerSnapIndicator.visible = false;
         }
     }
     
@@ -489,21 +786,65 @@ export class LevelEditor {
             shape.closePath();
             geometry = new THREE.ShapeGeometry(shape);
         } else if (tool.category === 'shape') {
-            // Shape preview - rectangle for line shape
-            const roundPegDiameter = 0.09 * 2; // Base round peg diameter
-            const defaultHeight = roundPegDiameter * 2; // Double the height
-            const previewWidth = 2;
-            const previewHeight = defaultHeight;
-            
-            const shape = new THREE.Shape();
-            const halfWidth = previewWidth / 2;
-            const halfHeight = previewHeight / 2;
-            shape.moveTo(-halfWidth, -halfHeight);
-            shape.lineTo(halfWidth, -halfHeight);
-            shape.lineTo(halfWidth, halfHeight);
-            shape.lineTo(-halfWidth, halfHeight);
-            shape.closePath();
-            geometry = new THREE.ShapeGeometry(shape);
+            // Shape preview - rectangle for line shape, circle for circle shape
+            if (tool.type === 'circle') {
+                // Circle shape preview
+                const circleSizeMultiplier = 3; // Circle shapes are 3x the peg size
+                let circleRadius = 1; // Default radius
+                
+                if (tool.size) {
+                    const pegSize = this.pegSizes[tool.size];
+                    if (typeof pegSize === 'number' && !isNaN(pegSize) && pegSize > 0) {
+                        circleRadius = pegSize * circleSizeMultiplier;
+                    }
+                }
+                
+                geometry = new THREE.CircleGeometry(circleRadius, 32);
+            } else {
+                // Line shape preview - rectangle
+                const roundPegDiameter = 0.09 * 2; // Base round peg diameter
+                const defaultHeight = roundPegDiameter * 2; // Double the height
+                const previewWidth = 2;
+                const previewHeight = defaultHeight;
+                
+                const shape = new THREE.Shape();
+                const halfWidth = previewWidth / 2;
+                const halfHeight = previewHeight / 2;
+                shape.moveTo(-halfWidth, -halfHeight);
+                shape.lineTo(halfWidth, -halfHeight);
+                shape.lineTo(halfWidth, halfHeight);
+                shape.lineTo(-halfWidth, halfHeight);
+                shape.closePath();
+                geometry = new THREE.ShapeGeometry(shape);
+            }
+        } else if (tool.category === 'static') {
+            // Characteristic preview
+            if (tool.type === 'round') {
+                // Default circle size (smallest) = 0.5
+                // Each subsequent size is 50% bigger
+                const defaultCircleRadius = 0.5;
+                const circleSizes = {
+                    small: defaultCircleRadius,              // 0.5 (default)
+                    base: defaultCircleRadius * 1.5,         // 0.75 (50% bigger)
+                    large: defaultCircleRadius * 1.5 * 1.5   // 1.125 (50% bigger than base)
+                };
+                
+                const sizeName = tool.size || 'small';
+                const radius = circleSizes[sizeName] || circleSizes.small;
+                geometry = new THREE.CircleGeometry(radius, 32);
+            } else {
+                // Rectangular
+                const defaultSize = { width: 1, height: 1 };
+                const shape = new THREE.Shape();
+                const halfWidth = defaultSize.width / 2;
+                const halfHeight = defaultSize.height / 2;
+                shape.moveTo(-halfWidth, -halfHeight);
+                shape.lineTo(halfWidth, -halfHeight);
+                shape.lineTo(halfWidth, halfHeight);
+                shape.lineTo(-halfWidth, halfHeight);
+                shape.closePath();
+                geometry = new THREE.ShapeGeometry(shape);
+            }
         } else {
             // For other categories, create a simple circle preview for now
             geometry = new THREE.CircleGeometry(0.1, 16);
@@ -512,7 +853,10 @@ export class LevelEditor {
         // Use different colors for different tool types
         let previewColor = 0xffffff;
         let previewOpacity = 0.5;
-        if (tool.category === 'spacer') {
+        if (tool.category === 'static') {
+            previewColor = 0x808080; // Grey
+            previewOpacity = 0.5;
+        } else if (tool.category === 'spacer') {
             previewColor = 0xffff00; // Yellow
             previewOpacity = 0.3;
         } else if (tool.category === 'shape') {
@@ -547,8 +891,8 @@ export class LevelEditor {
         } else if (tool.category === 'shape') {
             this.placeShape(worldX, worldY, tool);
         } else if (tool.category === 'static') {
-            // TODO: Implement static object placement
-            console.log('Static object placement not yet implemented');
+            // Place characteristic
+            this.placeCharacteristic(worldX, worldY, tool);
         } else if (tool.category === 'spacer') {
             this.placeSpacer(worldX, worldY);
         } else if (tool.category === 'eraser') {
@@ -627,6 +971,47 @@ export class LevelEditor {
                 // Clear selection if this spacer was selected
                 if (this.selectedSpacer === spacer) {
                     this.selectedSpacer = null;
+                    this.updateSelectionIndicator(null);
+                }
+                return;
+            }
+        }
+        
+        // Then check characteristics (they have boundaries, not just point distance)
+        if (this.characteristics && this.characteristics.length > 0) {
+            const characteristic = this.findCharacteristicAtPosition(worldX, worldY);
+            if (characteristic) {
+                // If characteristic is inside a shape, remove it from the shape first
+                if (characteristic.parentShape) {
+                    characteristic.parentShape.removeCharacteristic(characteristic);
+                }
+                
+                // Remove characteristic
+                characteristic.remove();
+                const characteristicIndex = this.characteristics.indexOf(characteristic);
+                if (characteristicIndex !== -1) {
+                    this.characteristics.splice(characteristicIndex, 1);
+                }
+                
+                // Remove from placed objects
+                this.placedObjects = this.placedObjects.filter(obj => {
+                    if (obj.category === 'characteristic' && obj.position) {
+                        const objX = obj.position.x;
+                        const objY = obj.position.y;
+                        const charX = characteristic.position.x;
+                        const charY = characteristic.position.y;
+                        const distance = Math.sqrt(
+                            Math.pow(objX - charX, 2) + 
+                            Math.pow(objY - charY, 2)
+                        );
+                        return distance >= 0.05; // Keep if not matching
+                    }
+                    return true;
+                });
+                
+                // Clear selection if this characteristic was selected
+                if (this.selectedCharacteristic === characteristic) {
+                    this.selectedCharacteristic = null;
                     this.updateSelectionIndicator(null);
                 }
                 return;
@@ -725,10 +1110,46 @@ export class LevelEditor {
     movePeg(peg, newX, newY) {
         if (!peg || !peg.body || !peg.mesh) return;
         
+        const oldX = peg.body.position.x;
+        const oldY = peg.body.position.y;
+        
+        // Check if peg is already inside a shape
+        const currentShape = peg.parentShape;
+        
         // Constrain movement to spacer edges
-        const constrainedPos = this.constrainPegToSpacerEdges(newX, newY, peg, peg.body.position.x, peg.body.position.y);
+        const constrainedPos = this.constrainPegToSpacerEdges(newX, newY, peg, oldX, oldY);
         const roundedX = this.roundToDecimals(constrainedPos.x);
         const roundedY = this.roundToDecimals(constrainedPos.y);
+        
+        // Check if new position is inside a shape
+        const containingShape = this.findShapeAtPosition(roundedX, roundedY);
+        
+        // If peg is already inside a shape, check if it's still inside after movement
+        if (currentShape) {
+            if (containingShape === currentShape) {
+                // Still inside the same shape - find insertion index and reinsert
+                const insertionIndex = currentShape.findInsertionIndex(roundedX, roundedY);
+                // Remove from current position
+                const currentIndex = currentShape.containedPegs.indexOf(peg);
+                if (currentIndex !== -1) {
+                    currentShape.containedPegs.splice(currentIndex, 1);
+                }
+                // Reinsert at new position
+                currentShape.addPeg(peg, insertionIndex);
+                return; // addPeg will call rearrangePegs which will position the peg
+            } else {
+                // Moved outside or to different shape - remove from current shape
+                currentShape.removePeg(peg);
+            }
+        }
+        
+        // Check if new position is inside a shape (and not already in it)
+        if (containingShape && containingShape !== currentShape && containingShape.canTakeObjects !== false) {
+            // Moved into a shape - find insertion index and add to it (only if shape can take objects)
+            const insertionIndex = containingShape.findInsertionIndex(roundedX, roundedY);
+            containingShape.addPeg(peg, insertionIndex);
+            return; // addPeg will call rearrangePegs which will position the peg
+        }
         
         // Update physics body position
         peg.body.position.set(roundedX, roundedY, peg.body.position.z || 0);
@@ -759,11 +1180,12 @@ export class LevelEditor {
     }
     
     selectPegForRotation(worldX, worldY) {
-        // Work with pegs or shapes
+        // Work with pegs, shapes, or characteristics
         const peg = this.findPegAtPosition(worldX, worldY);
         if (peg) {
             this.selectedPeg = peg;
             this.selectedShape = null; // Clear shape selection
+            this.selectedCharacteristic = null; // Clear characteristic selection
             this.updateSelectionIndicator(peg);
         } else {
             // Try shape
@@ -771,15 +1193,31 @@ export class LevelEditor {
             if (shape) {
                 this.selectedShape = shape;
                 this.selectedPeg = null; // Clear peg selection
+                this.selectedCharacteristic = null; // Clear characteristic selection
                 this.updateSelectionIndicator(shape);
             } else {
-                // Clear selection if clicking empty space
-                this.selectedPeg = null;
-                this.selectedShape = null;
-                this.updateSelectionIndicator(null);
+                // Try characteristic
+                const characteristic = this.findCharacteristicAtPosition(worldX, worldY);
+                if (characteristic) {
+                    this.selectedCharacteristic = characteristic;
+                    this.selectedPeg = null; // Clear peg selection
+                    this.selectedShape = null; // Clear shape selection
+                    this.updateSelectionIndicator(characteristic);
+                } else {
+                    // Clear selection if clicking empty space
+                    this.selectedPeg = null;
+                    this.selectedShape = null;
+                    this.selectedCharacteristic = null;
+                    this.updateSelectionIndicator(null);
+                }
             }
         }
-        console.log('Selected peg for rotation:', peg ? 'Found' : 'None', 'Shape:', this.selectedShape ? 'Found' : 'None');
+        console.log('Selected for rotation:', peg ? 'Peg' : (this.selectedShape ? 'Shape' : (this.selectedCharacteristic ? 'Characteristic' : 'None')));
+    }
+    
+    selectObjectForRotation(worldX, worldY) {
+        // Alias for selectPegForRotation (now handles all objects)
+        this.selectPegForRotation(worldX, worldY);
     }
     
     findHandleAtPosition(spacer, worldX, worldY) {
@@ -806,48 +1244,159 @@ export class LevelEditor {
     }
     
     resizeSpacerByHandle(worldX, worldY) {
-        // Works for both spacers and shapes
-        const objectToResize = this.selectedSpacer || this.selectedShape;
+        // Works for spacers, shapes, and characteristics
+        const objectToResize = this.selectedSpacer || this.selectedShape || this.selectedCharacteristic;
         if (!objectToResize || !this.selectedHandle) return;
         
         const deltaX = worldX - this.resizeStartPos.x;
         const deltaY = worldY - this.resizeStartPos.y;
         
         const handleIndex = this.selectedHandle.userData.handleIndex;
+        const handleType = this.selectedHandle.userData.handleType;
+        
+        // Handle circular characteristics - maintain perfect circle (aspect ratio locked)
+        // Cannon.js Sphere only supports perfect circles, not ellipses, so we must maintain circularity
+        if (objectToResize.shape === 'circle') {
+            // For circles, calculate distance from center to mouse to maintain perfect circularity
+            // This automatically locks the aspect ratio (1:1) since we use distance, not separate width/height
+            const centerX = objectToResize.position.x;
+            const centerY = objectToResize.position.y;
+            const distance = Math.sqrt(
+                Math.pow(worldX - centerX, 2) + 
+                Math.pow(worldY - centerY, 2)
+            );
+            const newRadius = Math.max(0.1, distance);
+            
+            objectToResize.updateSize({ radius: newRadius });
+            
+            // Update in placed objects
+            const placedObj = this.placedObjects.find(obj => {
+                if (obj.category === 'characteristic' && obj.position && objectToResize.position) {
+                    const objX = obj.position.x;
+                    const objY = obj.position.y;
+                    const charX = objectToResize.position.x;
+                    const charY = objectToResize.position.y;
+                    const dist = Math.sqrt(
+                        Math.pow(objX - charX, 2) + 
+                        Math.pow(objY - charY, 2)
+                    );
+                    return dist < 0.05;
+                }
+                return false;
+            });
+            
+            if (placedObj) {
+                placedObj.size = { radius: newRadius };
+            }
+            return;
+        }
         
         let newWidth = this.resizeStartSize.width;
         let newHeight = this.resizeStartSize.height;
         
-        // Adjust size based on which corner handle is being dragged
-        // 0: bottom-left, 1: bottom-right, 2: top-right, 3: top-left
-        switch (handleIndex) {
-            case 0: // Bottom-left
-                newWidth = this.resizeStartSize.width - deltaX * 2;
-                newHeight = this.resizeStartSize.height - deltaY * 2;
-                break;
-            case 1: // Bottom-right
-                newWidth = this.resizeStartSize.width + deltaX * 2;
-                newHeight = this.resizeStartSize.height - deltaY * 2;
-                break;
-            case 2: // Top-right
-                newWidth = this.resizeStartSize.width + deltaX * 2;
-                newHeight = this.resizeStartSize.height + deltaY * 2;
-                break;
-            case 3: // Top-left
-                newWidth = this.resizeStartSize.width - deltaX * 2;
-                newHeight = this.resizeStartSize.height + deltaY * 2;
-                break;
+        if (handleType === 'corner') {
+            // Adjust size based on which corner handle is being dragged
+            // 0: bottom-left, 1: bottom-right, 2: top-right, 3: top-left
+            switch (handleIndex) {
+                case 0: // Bottom-left
+                    newWidth = this.resizeStartSize.width - deltaX * 2;
+                    newHeight = this.resizeStartSize.height - deltaY * 2;
+                    break;
+                case 1: // Bottom-right
+                    newWidth = this.resizeStartSize.width + deltaX * 2;
+                    newHeight = this.resizeStartSize.height - deltaY * 2;
+                    break;
+                case 2: // Top-right
+                    newWidth = this.resizeStartSize.width + deltaX * 2;
+                    newHeight = this.resizeStartSize.height + deltaY * 2;
+                    break;
+                case 3: // Top-left
+                    newWidth = this.resizeStartSize.width - deltaX * 2;
+                    newHeight = this.resizeStartSize.height + deltaY * 2;
+                    break;
+            }
+        } else if (handleType === 'axis') {
+            // Adjust size based on which axis handle is being dragged
+            // 4: bottom, 5: right, 6: top, 7: left
+            switch (handleIndex) {
+                case 4: // Bottom - adjust height only
+                    newHeight = this.resizeStartSize.height - deltaY * 2;
+                    break;
+                case 5: // Right - adjust width only
+                    newWidth = this.resizeStartSize.width + deltaX * 2;
+                    break;
+                case 6: // Top - adjust height only
+                    newHeight = this.resizeStartSize.height + deltaY * 2;
+                    break;
+                case 7: // Left - adjust width only
+                    newWidth = this.resizeStartSize.width - deltaX * 2;
+                    break;
+            }
+        }
+        
+        // If it's a circle shape, maintain aspect ratio (width == height)
+        if (objectToResize === this.selectedShape && objectToResize.type === 'circle') {
+            // Use the larger dimension to maintain circular shape
+            const size = Math.max(newWidth, newHeight);
+            newWidth = size;
+            newHeight = size;
         }
         
         // Ensure minimum size
         newWidth = Math.max(0.2, newWidth);
         newHeight = Math.max(0.2, newHeight);
         
+        // If it's a spacer, constrain size to level bounds
+        if (objectToResize === this.selectedSpacer) {
+            const levelBounds = {
+                left: -6,
+                right: 6,
+                bottom: -4.5,
+                top: 4.5
+            };
+            
+            const spacerPos = objectToResize.position;
+            let halfWidth = newWidth / 2;
+            let halfHeight = newHeight / 2;
+            
+            // Constrain width to not exceed bounds
+            if (spacerPos.x - halfWidth < levelBounds.left) {
+                halfWidth = spacerPos.x - levelBounds.left;
+                newWidth = halfWidth * 2;
+            }
+            if (spacerPos.x + halfWidth > levelBounds.right) {
+                halfWidth = levelBounds.right - spacerPos.x;
+                newWidth = halfWidth * 2;
+            }
+            
+            // Constrain height to not exceed bounds
+            if (spacerPos.y - halfHeight < levelBounds.bottom) {
+                halfHeight = spacerPos.y - levelBounds.bottom;
+                newHeight = halfHeight * 2;
+            }
+            if (spacerPos.y + halfHeight > levelBounds.top) {
+                halfHeight = levelBounds.top - spacerPos.y;
+                newHeight = halfHeight * 2;
+            }
+            
+            // Ensure minimum size after constraints
+            newWidth = Math.max(0.2, newWidth);
+            newHeight = Math.max(0.2, newHeight);
+        }
+        
         const newSize = { width: newWidth, height: newHeight };
         objectToResize.updateSize(newSize);
         
         // Update in placed objects
-        const category = objectToResize === this.selectedSpacer ? 'spacer' : 'shape';
+        let category;
+        if (objectToResize === this.selectedSpacer) {
+            category = 'spacer';
+        } else if (objectToResize === this.selectedCharacteristic) {
+            category = 'characteristic';
+        } else {
+            category = 'shape';
+        }
+        
         const placedObj = this.placedObjects.find(obj => {
             if (obj.category === category && obj.position && objectToResize.position) {
                 const objX = obj.position.x;
@@ -921,55 +1470,91 @@ export class LevelEditor {
     }
     
     /**
-     * Constrain peg movement to spacer edges - snap to edges when touching
+     * Unified constraint method for all objects (pegs, shapes, spacers)
+     * Constrains movement to spacer edges - snap to edges when touching
      * Returns constrained position {x, y}
+     * 
+     * @param {number} newX - New X position
+     * @param {number} newY - New Y position
+     * @param {Object} object - The object being moved (peg, shape, or spacer)
+     * @param {number} oldX - Old X position
+     * @param {number} oldY - Old Y position
+     * @param {Object} excludeSpacer - Optional spacer to exclude from checks (the one being moved)
+     * @returns {Object} Constrained position {x, y}
      */
-    constrainPegToSpacerEdges(newX, newY, peg, oldX, oldY) {
+    constrainObjectToSpacers(newX, newY, object, oldX, oldY, excludeSpacer = null) {
         if (!this.spacers || this.spacers.length === 0) {
             return { x: newX, y: newY };
         }
         
-        const pegType = peg.type || 'round';
-        const pegSize = peg.size || 'base';
+        // Get object bounds based on type
+        let newBounds, oldBounds, objectWidth, objectHeight;
+        
+        if (object.getBounds) {
+            // It's a shape or spacer - use getBounds method
+            // For shapes, getBounds accounts for rotation, but we need to calculate at new position
+            // Temporarily update position to get bounds at new position
+            const originalX = object.position.x;
+            const originalY = object.position.y;
+            
+            // Temporarily set position to calculate bounds
+            object.position.x = newX;
+            object.position.y = newY;
+            newBounds = object.getBounds();
+            
+            object.position.x = oldX;
+            object.position.y = oldY;
+            oldBounds = object.getBounds();
+            
+            // Restore original position
+            object.position.x = originalX;
+            object.position.y = originalY;
+            
+            objectWidth = newBounds.right - newBounds.left;
+            objectHeight = newBounds.top - newBounds.bottom;
+        } else {
+            // It's a peg - use getPegBounds
+            const pegType = object.type || 'round';
+            const pegSize = object.size || 'base';
+            newBounds = this.getPegBounds(newX, newY, pegType, pegSize);
+            oldBounds = this.getPegBounds(oldX, oldY, pegType, pegSize);
+            objectWidth = newBounds.right - newBounds.left;
+            objectHeight = newBounds.top - newBounds.bottom;
+        }
+        
         let constrainedX = newX;
         let constrainedY = newY;
         
-        // Get current peg bounds
-        const newPegBounds = this.getPegBounds(newX, newY, pegType, pegSize);
-        const oldPegBounds = this.getPegBounds(oldX, oldY, pegType, pegSize);
+        // Calculate movement direction
+        const deltaX = newX - oldX;
+        const deltaY = newY - oldY;
+        const absDeltaX = Math.abs(deltaX);
+        const absDeltaY = Math.abs(deltaY);
         
         for (const spacer of this.spacers) {
+            // Skip the spacer being moved (if it's a spacer)
+            if (spacer === excludeSpacer || spacer === object) {
+                continue;
+            }
+            
             const spacerBounds = spacer.getBounds();
             
-            // Check if peg would overlap spacer
-            const wouldOverlap = newPegBounds.right > spacerBounds.left &&
-                                 newPegBounds.left < spacerBounds.right &&
-                                 newPegBounds.top > spacerBounds.bottom &&
-                                 newPegBounds.bottom < spacerBounds.top;
+            // Check if object would overlap spacer
+            const wouldOverlap = newBounds.right > spacerBounds.left &&
+                                 newBounds.left < spacerBounds.right &&
+                                 newBounds.top > spacerBounds.bottom &&
+                                 newBounds.bottom < spacerBounds.top;
             
             if (wouldOverlap) {
-                // Calculate movement direction
-                const deltaX = newX - oldX;
-                const deltaY = newY - oldY;
-                
-                // Check if moving primarily in X or Y direction
-                const absDeltaX = Math.abs(deltaX);
-                const absDeltaY = Math.abs(deltaY);
-                
-                // Get peg dimensions for calculating constraint
-                const pegBoundsAtNewPos = this.getPegBounds(newX, newY, pegType, pegSize);
-                const pegHeight = pegBoundsAtNewPos.top - pegBoundsAtNewPos.bottom;
-                const pegWidth = pegBoundsAtNewPos.right - pegBoundsAtNewPos.left;
-                
                 if (absDeltaY > absDeltaX) {
                     // Moving primarily in Y direction
                     // Snap to top or bottom edge
                     if (deltaY < 0) {
-                        // Moving up (toward spacer from below) - peg bottom should touch spacer top
-                        constrainedY = spacerBounds.top + pegHeight / 2;
+                        // Moving up (toward spacer from below) - object bottom should touch spacer top
+                        constrainedY = spacerBounds.top + objectHeight / 2;
                     } else {
-                        // Moving down (toward spacer from above) - peg top should touch spacer bottom
-                        constrainedY = spacerBounds.bottom - pegHeight / 2;
+                        // Moving down (toward spacer from above) - object top should touch spacer bottom
+                        constrainedY = spacerBounds.bottom - objectHeight / 2;
                     }
                     // Allow X movement freely
                     constrainedX = newX;
@@ -977,19 +1562,51 @@ export class LevelEditor {
                     // Moving primarily in X direction
                     // Snap to left or right edge
                     if (deltaX > 0) {
-                        // Moving right (toward spacer from left) - peg right should touch spacer left
-                        constrainedX = spacerBounds.left - pegWidth / 2;
+                        // Moving right (toward spacer from left) - object right should touch spacer left
+                        constrainedX = spacerBounds.left - objectWidth / 2;
                     } else {
-                        // Moving left (toward spacer from right) - peg left should touch spacer right
-                        constrainedX = spacerBounds.right + pegWidth / 2;
+                        // Moving left (toward spacer from right) - object left should touch spacer right
+                        constrainedX = spacerBounds.right + objectWidth / 2;
                     }
                     // Allow Y movement freely
                     constrainedY = newY;
+                }
+                
+                // Update bounds for next spacer check
+                if (object.getBounds) {
+                    const halfWidth = object.size.width / 2;
+                    const halfHeight = object.size.height / 2;
+                    newBounds.left = constrainedX - halfWidth;
+                    newBounds.right = constrainedX + halfWidth;
+                    newBounds.bottom = constrainedY - halfHeight;
+                    newBounds.top = constrainedY + halfHeight;
+                } else {
+                    const pegType = object.type || 'round';
+                    const pegSize = object.size || 'base';
+                    newBounds = this.getPegBounds(constrainedX, constrainedY, pegType, pegSize);
                 }
             }
         }
         
         return { x: constrainedX, y: constrainedY };
+    }
+    
+    /**
+     * Constrain shape movement to spacer edges - snap to edges when touching
+     * Returns constrained position {x, y}
+     * @deprecated Use constrainObjectToSpacers instead
+     */
+    constrainShapeToSpacerEdges(newX, newY, shape, oldX, oldY) {
+        return this.constrainObjectToSpacers(newX, newY, shape, oldX, oldY);
+    }
+    
+    /**
+     * Constrain peg movement to spacer edges - snap to edges when touching
+     * Returns constrained position {x, y}
+     * @deprecated Use constrainObjectToSpacers instead
+     */
+    constrainPegToSpacerEdges(newX, newY, peg, oldX, oldY) {
+        return this.constrainObjectToSpacers(newX, newY, peg, oldX, oldY);
     }
     
     rotatePeg(peg, angleDegrees) {
@@ -1014,6 +1631,26 @@ export class LevelEditor {
         if (this.selectionIndicator) {
             this.selectionIndicator.rotation.z = newZRotation;
         }
+        
+        // Update rotation in placed objects
+        const placedObj = this.placedObjects.find(obj => {
+            if (obj.category === 'peg' && obj.position && peg.body && peg.body.position) {
+                const objX = obj.position.x;
+                const objY = obj.position.y;
+                const pegX = peg.body.position.x;
+                const pegY = peg.body.position.y;
+                const distance = Math.sqrt(
+                    Math.pow(objX - pegX, 2) + 
+                    Math.pow(objY - pegY, 2)
+                );
+                return distance < 0.05;
+            }
+            return false;
+        });
+        
+        if (placedObj) {
+            placedObj.rotation = newZRotation;
+        }
     }
     
     rotateShape(shape, angleDegrees) {
@@ -1026,12 +1663,51 @@ export class LevelEditor {
         const currentZRotation = shape.mesh.rotation.z || 0;
         const newZRotation = currentZRotation + angleRadians;
         
-        // Update shape rotation
+        // Update shape rotation (this will automatically rearrange pegs and characteristics)
         shape.setRotation(newZRotation);
         
         // Update indicator rotation if shape is selected
         if (this.selectionIndicator && this.selectedShape === shape) {
             this.selectionIndicator.rotation.z = newZRotation;
+        }
+    }
+    
+    rotateCharacteristic(characteristic, angleDegrees) {
+        if (!characteristic || !characteristic.mesh) return;
+        
+        // Convert degrees to radians
+        const angleRadians = (angleDegrees * Math.PI) / 180;
+        
+        // Get current Z rotation from mesh
+        const currentZRotation = characteristic.mesh.rotation.z || 0;
+        const newZRotation = currentZRotation + angleRadians;
+        
+        // Update characteristic rotation
+        characteristic.setRotation(newZRotation);
+        
+        // Update indicator rotation if characteristic is selected
+        if (this.selectionIndicator && this.selectedCharacteristic === characteristic) {
+            this.selectionIndicator.rotation.z = newZRotation;
+        }
+        
+        // Update in placed objects
+        const placedObj = this.placedObjects.find(obj => {
+            if (obj.category === 'characteristic' && obj.position && characteristic.position) {
+                const objX = obj.position.x;
+                const objY = obj.position.y;
+                const charX = characteristic.position.x;
+                const charY = characteristic.position.y;
+                const distance = Math.sqrt(
+                    Math.pow(objX - charX, 2) + 
+                    Math.pow(objY - charY, 2)
+                );
+                return distance < 0.05;
+            }
+            return false;
+        });
+        
+        if (placedObj) {
+            placedObj.rotation = newZRotation;
         }
     }
     
@@ -1045,7 +1721,7 @@ export class LevelEditor {
         // Then repeat every 50ms when holding
         this.rotateKeyRepeatTimer = setTimeout(() => {
             this.rotateKeyRepeatTimer = setInterval(() => {
-                if (this.selectedPeg || this.selectedShape) {
+                if (this.selectedPeg || this.selectedShape || this.selectedCharacteristic) {
                     callback();
                 } else {
                     this.stopRotateKeyRepeat();
@@ -1080,8 +1756,49 @@ export class LevelEditor {
         let geometry;
         const outlineSize = 0.03; // Thickness of outline
         
-        // Check if it's a shape
-        if (object.type && (object.type === 'line' || object.type === 'circle')) {
+        // Check if it's a characteristic (has shape property: 'rect' or 'circle')
+        if (object.shape && (object.shape === 'rect' || object.shape === 'circle')) {
+            // Characteristic outline
+            if (object.shape === 'circle') {
+                // Circle outline
+                const radius = object.size?.radius || (object.size?.width ? object.size.width / 2 : 0.5);
+                const outerRadius = radius + outlineSize;
+                const innerRadius = radius;
+                
+                const shape = new THREE.Shape();
+                shape.absarc(0, 0, outerRadius, 0, Math.PI * 2, false);
+                const holePath = new THREE.Path();
+                holePath.absarc(0, 0, innerRadius, 0, Math.PI * 2, true);
+                shape.holes.push(holePath);
+                geometry = new THREE.ShapeGeometry(shape);
+            } else {
+                // Rectangle outline
+                const size = object.size || { width: 1, height: 1 };
+                const outerWidth = size.width + outlineSize * 2;
+                const outerHeight = size.height + outlineSize * 2;
+                const innerWidth = size.width;
+                const innerHeight = size.height;
+                
+                const shape = new THREE.Shape();
+                // Outer rectangle
+                shape.moveTo(-outerWidth / 2, -outerHeight / 2);
+                shape.lineTo(outerWidth / 2, -outerHeight / 2);
+                shape.lineTo(outerWidth / 2, outerHeight / 2);
+                shape.lineTo(-outerWidth / 2, outerHeight / 2);
+                shape.closePath();
+                
+                // Inner hole
+                const holePath = new THREE.Path();
+                holePath.moveTo(-innerWidth / 2, -innerHeight / 2);
+                holePath.lineTo(innerWidth / 2, -innerHeight / 2);
+                holePath.lineTo(innerWidth / 2, innerHeight / 2);
+                holePath.lineTo(-innerWidth / 2, innerHeight / 2);
+                holePath.closePath();
+                shape.holes.push(holePath);
+                
+                geometry = new THREE.ShapeGeometry(shape);
+            }
+        } else if (object.type && (object.type === 'line' || object.type === 'circle')) {
             // Shape outline - rectangle
             const size = object.size || { width: 2, height: 0.36 };
             const outerWidth = size.width + outlineSize * 2;
@@ -1229,7 +1946,7 @@ export class LevelEditor {
             // Check if peg is being placed inside a shape
             try {
                 const containingShape = this.findShapeAtPosition(roundedX, roundedY);
-                if (containingShape && containingShape.addPeg) {
+                if (containingShape && containingShape.addPeg && containingShape.canTakeObjects !== false) {
                     containingShape.addPeg(peg);
                 }
             } catch (error) {
@@ -1242,7 +1959,8 @@ export class LevelEditor {
                 type: tool.type,
                 size: tool.size,
                 position: { x: roundedX, y: roundedY, z: 0 },
-                color: baseColor
+                color: baseColor,
+                rotation: 0 // Initialize rotation to 0
             });
         });
     }
@@ -1291,6 +2009,96 @@ export class LevelEditor {
         });
     }
     
+    placeCharacteristic(worldX, worldY, tool) {
+        if (!this.game || !this.game.scene || !this.game.physicsWorld) return;
+        
+        // Import Characteristic dynamically
+        import('../entities/Characteristic.js').then(({ Characteristic }) => {
+            const roundedX = this.roundToDecimals(worldX);
+            const roundedY = this.roundToDecimals(worldY);
+            
+            const toolType = tool.type || 'rect'; // 'rect' or 'round' (from tool)
+            // Convert 'round' to 'circle' for Characteristic class
+            const shapeType = toolType === 'round' ? 'circle' : 'rect';
+            let defaultSize;
+            
+            if (shapeType === 'circle') {
+                // Default circle size (smallest) = 0.5
+                // Each subsequent size is 50% bigger
+                const defaultCircleRadius = 0.5;
+                const circleSizes = {
+                    small: defaultCircleRadius,              // 0.5 (default)
+                    base: defaultCircleRadius * 1.5,         // 0.75 (50% bigger)
+                    large: defaultCircleRadius * 1.5 * 1.5   // 1.125 (50% bigger than base)
+                };
+                
+                // Get size from tool, default to 'small' if not specified
+                const sizeName = (tool && tool.size) ? tool.size : 'small';
+                let radius = circleSizes[sizeName];
+                
+                // Fallback if sizeName is not in circleSizes
+                if (typeof radius !== 'number' || isNaN(radius) || radius <= 0) {
+                    console.warn('[LevelEditor] Invalid size name or radius:', sizeName, radius, 'using default small');
+                    radius = circleSizes.small;
+                }
+                
+                // Ensure final radius is valid
+                if (typeof radius !== 'number' || isNaN(radius) || radius <= 0) {
+                    console.error('[LevelEditor] Invalid calculated radius:', radius, 'using fallback 0.5');
+                    radius = 0.5;
+                }
+                
+                defaultSize = { radius: radius };
+                console.log('[LevelEditor] Placing circular characteristic with size:', defaultSize, 'sizeName:', sizeName, 'radius:', radius);
+            } else {
+                defaultSize = { width: 1, height: 1 };
+                // Ensure width and height are valid numbers
+                if (typeof defaultSize.width !== 'number' || isNaN(defaultSize.width) || defaultSize.width <= 0) {
+                    defaultSize.width = 1;
+                }
+                if (typeof defaultSize.height !== 'number' || isNaN(defaultSize.height) || defaultSize.height <= 0) {
+                    defaultSize.height = 1;
+                }
+            }
+            
+            console.log('[LevelEditor] Creating characteristic:', { shapeType, defaultSize, position: { x: roundedX, y: roundedY, z: 0 } });
+            
+            const characteristic = new Characteristic(
+                this.game.scene,
+                this.game.physicsWorld,
+                { x: roundedX, y: roundedY, z: 0 },
+                shapeType,
+                defaultSize,
+                'normal' // Default bounce type
+            );
+            
+            this.characteristics.push(characteristic);
+            
+            // Check if characteristic is being placed inside a shape
+            try {
+                const containingShape = this.findShapeAtPosition(roundedX, roundedY);
+                if (containingShape && containingShape.addCharacteristic && containingShape.canTakeObjects !== false) {
+                    containingShape.addCharacteristic(characteristic);
+                }
+            } catch (error) {
+                console.error('Error adding characteristic to shape:', error);
+            }
+            
+            // Store in placed objects (use toolType for consistency with tool system)
+            this.placedObjects.push({
+                category: 'characteristic',
+                type: toolType, // Store as 'round' or 'rect' to match tool system
+                shape: shapeType, // Store actual shape used by Characteristic ('circle' or 'rect')
+                position: { x: roundedX, y: roundedY, z: 0 },
+                size: defaultSize,
+                rotation: 0,
+                bounceType: 'normal' // Default bounce type
+            });
+            
+            console.log('Characteristic placed at:', { x: roundedX, y: roundedY }, 'Type:', toolType, 'Shape:', shapeType, 'Size:', defaultSize);
+        });
+    }
+    
     placeShape(worldX, worldY, tool) {
         if (!this.game || !this.game.scene) return;
         
@@ -1310,7 +2118,29 @@ export class LevelEditor {
                 defaultSize = { width: 2, height: defaultHeight };
             } else {
                 // Circle shape - use size from tool if provided
-                defaultSize = tool.size ? { width: tool.size * 4, height: tool.size * 4 } : { width: 2, height: 2 };
+                // tool.size is a string like 'small', 'base', 'large'
+                // Map to actual numeric size (similar to how pegs work, but circles are tripled)
+                const circleSizeMultiplier = 3; // Circle shapes are 3x the peg size
+                let circleSize = 2; // Default size
+                
+                if (tool.size) {
+                    const pegSize = this.pegSizes[tool.size];
+                    if (typeof pegSize === 'number' && !isNaN(pegSize) && pegSize > 0) {
+                        // Use peg size as base, multiply by circleSizeMultiplier for the radius
+                        // Then double it for diameter (width/height)
+                        circleSize = pegSize * circleSizeMultiplier * 2;
+                    }
+                }
+                
+                defaultSize = { width: circleSize, height: circleSize };
+                
+                // Ensure valid numbers
+                if (typeof defaultSize.width !== 'number' || isNaN(defaultSize.width) || defaultSize.width <= 0) {
+                    console.warn('[LevelEditor] Invalid circle shape size, using default:', tool.size);
+                    defaultSize = { width: 2, height: 2 };
+                }
+                
+                console.log('[LevelEditor] Placing circle shape with size:', defaultSize, 'tool.size:', tool.size);
             }
             
             const shape = new Shape(
@@ -1328,7 +2158,8 @@ export class LevelEditor {
                 type: shapeType,
                 position: { x: roundedX, y: roundedY, z: 0 },
                 size: defaultSize,
-                isEditorOnly: true
+                isEditorOnly: true,
+                canTakeObjects: shape.canTakeObjects !== false // Default to true
             });
             
             // Clear selection after placing shape
@@ -1342,8 +2173,13 @@ export class LevelEditor {
     moveSpacer(spacer, newX, newY) {
         if (!spacer) return;
         
-        const roundedX = this.roundToDecimals(newX);
-        const roundedY = this.roundToDecimals(newY);
+        const oldX = spacer.position.x;
+        const oldY = spacer.position.y;
+        
+        // Constrain movement to other spacer edges (same logic as shapes)
+        const constrainedPos = this.constrainObjectToSpacers(newX, newY, spacer, oldX, oldY, spacer);
+        const roundedX = this.roundToDecimals(constrainedPos.x);
+        const roundedY = this.roundToDecimals(constrainedPos.y);
         
         // Update spacer position
         spacer.moveTo({ x: roundedX, y: roundedY, z: 0 });
@@ -1370,27 +2206,198 @@ export class LevelEditor {
         }
     }
     
+    /**
+     * Snap spacer to inside edge if it crosses level border
+     * Single check, single adjustment
+     */
+    snapSpacerToBounds(spacer) {
+        if (!spacer) {
+            console.log('[SNAP] No spacer provided');
+            return;
+        }
+        
+        // Level bounds: X: -6 to 6, Y: -4.5 to 4.5 (bottom is -4.5)
+        const levelBounds = {
+            left: -6,
+            right: 6,
+            bottom: -4.5,
+            top: 4.5
+        };
+        
+        const halfWidth = spacer.size.width / 2;
+        const halfHeight = spacer.size.height / 2;
+        let currentX = spacer.position.x;
+        let currentY = spacer.position.y;
+        
+        // Calculate spacer edge coordinates
+        const spacerLeft = currentX - halfWidth;
+        const spacerRight = currentX + halfWidth;
+        const spacerBottom = currentY - halfHeight;
+        const spacerTop = currentY + halfHeight;
+        
+        console.log('[SNAP] Initial state:', {
+            currentX,
+            currentY,
+            halfWidth,
+            halfHeight,
+            spacerEdges: {
+                left: spacerLeft,
+                right: spacerRight,
+                bottom: spacerBottom,
+                top: spacerTop
+            },
+            levelBounds,
+            isOutOfBounds: {
+                left: spacerLeft < levelBounds.left,
+                right: spacerRight > levelBounds.right,
+                bottom: spacerBottom < levelBounds.bottom,
+                top: spacerTop > levelBounds.top
+            }
+        });
+        
+        // Single check and adjustment
+        if (spacerLeft < levelBounds.left) {
+            console.log('[SNAP] Crossing left edge:', {
+                spacerLeft,
+                levelBoundsLeft: levelBounds.left,
+                difference: spacerLeft - levelBounds.left,
+                newX: levelBounds.left + halfWidth
+            });
+            currentX = levelBounds.left + halfWidth;
+        } else if (spacerRight > levelBounds.right) {
+            console.log('[SNAP] Crossing right edge:', {
+                spacerRight,
+                levelBoundsRight: levelBounds.right,
+                difference: spacerRight - levelBounds.right,
+                newX: levelBounds.right - halfWidth
+            });
+            currentX = levelBounds.right - halfWidth;
+        }
+        
+        if (spacerBottom < levelBounds.bottom) {
+            console.log('[SNAP] Crossing bottom edge:', {
+                spacerBottom,
+                levelBoundsBottom: levelBounds.bottom,
+                difference: spacerBottom - levelBounds.bottom,
+                newY: levelBounds.bottom + halfHeight
+            });
+            currentY = levelBounds.bottom + halfHeight;
+        } else if (spacerTop > levelBounds.top) {
+            console.log('[SNAP] Crossing top edge:', {
+                spacerTop,
+                levelBoundsTop: levelBounds.top,
+                difference: spacerTop - levelBounds.top,
+                newY: levelBounds.top - halfHeight
+            });
+            currentY = levelBounds.top - halfHeight;
+        }
+        
+        console.log('[SNAP] After adjustment:', {
+            currentX,
+            currentY,
+            originalX: spacer.position.x,
+            originalY: spacer.position.y,
+            changed: currentX !== spacer.position.x || currentY !== spacer.position.y
+        });
+        
+        // Update position if it changed
+        if (currentX !== spacer.position.x || currentY !== spacer.position.y) {
+            const roundedX = this.roundToDecimals(currentX);
+            const roundedY = this.roundToDecimals(currentY);
+            console.log('[SNAP] Updating position to:', { roundedX, roundedY });
+            spacer.moveTo({ x: roundedX, y: roundedY, z: 0 });
+            
+            // Update in placed objects
+            const placedObj = this.placedObjects.find(obj => {
+                if (obj.category === 'spacer' && obj.position && spacer.position) {
+                    const objX = obj.position.x;
+                    const objY = obj.position.y;
+                    const spacerX = spacer.position.x;
+                    const spacerY = spacer.position.y;
+                    const distance = Math.sqrt(
+                        Math.pow(objX - spacerX, 2) + 
+                        Math.pow(objY - spacerY, 2)
+                    );
+                    return distance < 0.05;
+                }
+                return false;
+            });
+            
+            if (placedObj) {
+                placedObj.position.x = roundedX;
+                placedObj.position.y = roundedY;
+                console.log('[SNAP] Updated placed object');
+            } else {
+                console.log('[SNAP] No placed object found to update');
+            }
+        } else {
+            console.log('[SNAP] No adjustment needed');
+        }
+    }
+    
     moveShape(shape, newX, newY) {
         if (!shape) return;
         
-        const roundedX = this.roundToDecimals(newX);
-        const roundedY = this.roundToDecimals(newY);
+        const oldX = shape.position.x;
+        const oldY = shape.position.y;
+        
+        // Constrain movement to spacer edges (using unified method)
+        const constrainedPos = this.constrainObjectToSpacers(newX, newY, shape, oldX, oldY);
+        const roundedX = this.roundToDecimals(constrainedPos.x);
+        const roundedY = this.roundToDecimals(constrainedPos.y);
         
         // Update shape position
         shape.moveTo({ x: roundedX, y: roundedY, z: 0 });
+    }
+    
+    moveCharacteristic(characteristic, newX, newY) {
+        if (!characteristic) return;
+        
+        const oldX = characteristic.position.x;
+        const oldY = characteristic.position.y;
+        
+        // Constrain movement to spacer edges (using unified method)
+        const constrainedPos = this.constrainObjectToSpacers(newX, newY, characteristic, oldX, oldY);
+        const roundedX = this.roundToDecimals(constrainedPos.x);
+        const roundedY = this.roundToDecimals(constrainedPos.y);
+        
+        // Check if characteristic is currently in a shape
+        const currentShape = characteristic.parentShape;
+        
+        // Check if new position is inside a shape
+        const containingShape = this.findShapeAtPosition(roundedX, roundedY);
+        
+        if (containingShape && containingShape !== currentShape && containingShape.canTakeObjects !== false) {
+            // Moved into a different shape - add to it (only if shape can take objects)
+            // For now, just add at the end (could implement findInsertionIndex for characteristics later)
+            if (currentShape) {
+                currentShape.removeCharacteristic(characteristic);
+            }
+            containingShape.addCharacteristic(characteristic);
+        } else if (!containingShape && currentShape) {
+            // Moved outside of shape - remove from current shape
+            currentShape.removeCharacteristic(characteristic);
+        } else if (containingShape && containingShape === currentShape) {
+            // Still in same shape - let shape rearrange it
+            // Don't call moveTo directly, let the shape handle positioning
+            return;
+        } else {
+            // Not in any shape - update position directly
+            characteristic.moveTo({ x: roundedX, y: roundedY, z: 0 });
+        }
         
         // Update in placed objects
         const placedObj = this.placedObjects.find(obj => {
-            if (obj.category === 'shape' && obj.position && shape.position) {
+            if (obj.category === 'characteristic' && obj.position && characteristic.position) {
                 const objX = obj.position.x;
                 const objY = obj.position.y;
-                const shapeX = shape.position.x;
-                const shapeY = shape.position.y;
+                const charX = characteristic.position.x;
+                const charY = characteristic.position.y;
                 const distance = Math.sqrt(
-                    Math.pow(objX - shapeX, 2) + 
-                    Math.pow(objY - shapeY, 2)
+                    Math.pow(objX - charX, 2) + 
+                    Math.pow(objY - charY, 2)
                 );
-                return distance < 0.05; // Close enough to be the same shape
+                return distance < 0.05;
             }
             return false;
         });
@@ -1427,13 +2434,37 @@ export class LevelEditor {
         return null;
     }
     
+    findCharacteristicAtPosition(worldX, worldY) {
+        if (!this.characteristics || this.characteristics.length === 0) return null;
+        
+        // Check characteristics (they have boundaries, not just point distance)
+        for (const characteristic of this.characteristics) {
+            if (characteristic.containsPoint(worldX, worldY)) {
+                return characteristic;
+            }
+        }
+        
+        return null;
+    }
+    
     selectCopySource(worldX, worldY) {
-        // First try to find a peg
+        // First try to find a shape (shapes have priority so we copy the whole group)
+        const shape = this.findShapeAtPosition(worldX, worldY);
+        if (shape) {
+            this.copySource = { type: 'shape', data: shape };
+            this.createCopyPreview(shape);
+            return;
+        }
+        
+        // Then try to find a peg
         const peg = this.findPegAtPosition(worldX, worldY);
         if (peg) {
-            this.copySource = { type: 'peg', data: peg };
-            this.createCopyPreview(peg);
-            return;
+            // Only copy peg if it's not inside a shape
+            if (!peg.parentShape) {
+                this.copySource = { type: 'peg', data: peg };
+                this.createCopyPreview(peg);
+                return;
+            }
         }
         
         // Then try to find a spacer
@@ -1444,12 +2475,28 @@ export class LevelEditor {
             return;
         }
         
+        // Then try to find a characteristic
+        const characteristic = this.findCharacteristicAtPosition(worldX, worldY);
+        if (characteristic) {
+            this.copySource = { type: 'characteristic', data: characteristic };
+            this.createCopyPreview(characteristic);
+            return;
+        }
+        
         // No object found - clear copy source
         this.copySource = null;
         if (this.copyPreview) {
+            // Remove preview group and all children
+            if (this.copyPreview.isGroup) {
+                this.copyPreview.traverse((child) => {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) child.material.dispose();
+                });
+            } else {
+                if (this.copyPreview.geometry) this.copyPreview.geometry.dispose();
+                if (this.copyPreview.material) this.copyPreview.material.dispose();
+            }
             this.game.scene.remove(this.copyPreview);
-            if (this.copyPreview.geometry) this.copyPreview.geometry.dispose();
-            if (this.copyPreview.material) this.copyPreview.material.dispose();
             this.copyPreview = null;
         }
     }
@@ -1459,9 +2506,17 @@ export class LevelEditor {
         
         // Remove existing preview
         if (this.copyPreview) {
+            // Remove preview group and all children
+            if (this.copyPreview.isGroup) {
+                this.copyPreview.traverse((child) => {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) child.material.dispose();
+                });
+            } else {
+                if (this.copyPreview.geometry) this.copyPreview.geometry.dispose();
+                if (this.copyPreview.material) this.copyPreview.material.dispose();
+            }
             this.game.scene.remove(this.copyPreview);
-            if (this.copyPreview.geometry) this.copyPreview.geometry.dispose();
-            if (this.copyPreview.material) this.copyPreview.material.dispose();
         }
         
         // Create preview based on source type
@@ -1490,8 +2545,38 @@ export class LevelEditor {
                 opacity: 0.5
             });
             this.copyPreview = new THREE.Mesh(geometry, material);
-        } else if (source.size) {
-            // Spacer preview
+        } else if (source.shape && (source.shape === 'rect' || source.shape === 'circle')) {
+            // Characteristic preview
+            if (source.shape === 'circle') {
+                const radius = source.size?.radius || (source.size?.width ? source.size.width / 2 : 0.5);
+                const geometry = new THREE.CircleGeometry(radius, 32);
+                const material = new THREE.MeshBasicMaterial({
+                    color: 0x808080,
+                    transparent: true,
+                    opacity: 0.5
+                });
+                this.copyPreview = new THREE.Mesh(geometry, material);
+            } else {
+                // Rectangular characteristic
+                const size = source.size || { width: 1, height: 1 };
+                const shape = new THREE.Shape();
+                const halfWidth = size.width / 2;
+                const halfHeight = size.height / 2;
+                shape.moveTo(-halfWidth, -halfHeight);
+                shape.lineTo(halfWidth, -halfHeight);
+                shape.lineTo(halfWidth, halfHeight);
+                shape.lineTo(-halfWidth, halfHeight);
+                shape.closePath();
+                const geometry = new THREE.ShapeGeometry(shape);
+                const material = new THREE.MeshBasicMaterial({
+                    color: 0x808080,
+                    transparent: true,
+                    opacity: 0.5
+                });
+                this.copyPreview = new THREE.Mesh(geometry, material);
+            }
+        } else if (source.size && !source.containedPegs) {
+            // Spacer preview (has size but no containedPegs)
             const size = source.size;
             const shape = new THREE.Shape();
             const halfWidth = size.width / 2;
@@ -1508,6 +2593,74 @@ export class LevelEditor {
                 opacity: 0.3
             });
             this.copyPreview = new THREE.Mesh(geometry, material);
+        } else if (source.containedPegs !== undefined) {
+            // Shape with pegs - create a group preview
+            const shapeGroup = new THREE.Group();
+            
+            // Create shape preview (transparent green)
+            const size = source.size;
+            const shape = new THREE.Shape();
+            const halfWidth = size.width / 2;
+            const halfHeight = size.height / 2;
+            shape.moveTo(-halfWidth, -halfHeight);
+            shape.lineTo(halfWidth, -halfHeight);
+            shape.lineTo(halfWidth, halfHeight);
+            shape.lineTo(-halfWidth, halfHeight);
+            shape.closePath();
+            const shapeGeometry = new THREE.ShapeGeometry(shape);
+            const shapeMaterial = new THREE.MeshBasicMaterial({
+                color: 0x00ff00,
+                transparent: true,
+                opacity: 0.2
+            });
+            const shapeMesh = new THREE.Mesh(shapeGeometry, shapeMaterial);
+            shapeMesh.rotation.z = source.rotation || 0;
+            shapeGroup.add(shapeMesh);
+            
+            // Create preview for each contained peg
+            if (source.containedPegs && source.containedPegs.length > 0) {
+                source.containedPegs.forEach(peg => {
+                    if (!peg || !peg.body || !peg.mesh) return;
+                    
+                    let pegPreview;
+                    const pegPos = peg.body.position;
+                    
+                    if (peg.type === 'round') {
+                        const radius = peg.actualSize || 0.09;
+                        const geometry = new THREE.CircleGeometry(radius, 16);
+                        const material = new THREE.MeshBasicMaterial({
+                            color: 0xffffff,
+                            transparent: true,
+                            opacity: 0.5
+                        });
+                        pegPreview = new THREE.Mesh(geometry, material);
+                        pegPreview.position.set(pegPos.x - source.position.x, pegPos.y - source.position.y, 0.01);
+                    } else {
+                        // rect or dome
+                        const height = (peg.actualSize || 0.09) * 2;
+                        const width = height * 2;
+                        const pegShape = new THREE.Shape();
+                        pegShape.moveTo(-width / 2, -height / 2);
+                        pegShape.lineTo(width / 2, -height / 2);
+                        pegShape.lineTo(width / 2, height / 2);
+                        pegShape.lineTo(-width / 2, height / 2);
+                        pegShape.closePath();
+                        const geometry = new THREE.ShapeGeometry(pegShape);
+                        const material = new THREE.MeshBasicMaterial({
+                            color: 0xffffff,
+                            transparent: true,
+                            opacity: 0.5
+                        });
+                        pegPreview = new THREE.Mesh(geometry, material);
+                        pegPreview.position.set(pegPos.x - source.position.x, pegPos.y - source.position.y, 0.01);
+                        pegPreview.rotation.z = peg.mesh.rotation.z || 0;
+                    }
+                    
+                    shapeGroup.add(pegPreview);
+                });
+            }
+            
+            this.copyPreview = shapeGroup;
         }
         
         if (this.copyPreview) {
@@ -1523,8 +2676,14 @@ export class LevelEditor {
         const roundedX = this.roundToDecimals(worldX);
         const roundedY = this.roundToDecimals(worldY);
         
-        if (this.copySource.type === 'peg') {
-            const sourcePeg = this.copySource.data;
+        // Store copy source locally before clearing (we'll need it in async callbacks)
+        const copySourceToUse = this.copySource;
+        
+        // Clear copy source immediately (synchronously) so it can't be pasted again
+        this.clearCopySource();
+        
+        if (copySourceToUse.type === 'peg') {
+            const sourcePeg = copySourceToUse.data;
             // Create new peg with same properties
             import('../entities/Peg.js').then(({ Peg }) => {
                 const pegMaterial = this.game.physicsWorld.getPegMaterial();
@@ -1560,9 +2719,10 @@ export class LevelEditor {
                     color: sourcePeg.color,
                     rotation: peg.mesh.rotation.z
                 });
+                
             });
-        } else if (this.copySource.type === 'spacer') {
-            const sourceSpacer = this.copySource.data;
+        } else if (copySourceToUse.type === 'spacer') {
+            const sourceSpacer = copySourceToUse.data;
             // Create new spacer with same properties
             import('../entities/Spacer.js').then(({ Spacer }) => {
                 const spacer = new Spacer(
@@ -1584,7 +2744,194 @@ export class LevelEditor {
                     size: sourceSpacer.size,
                     isEditorOnly: true
                 });
+                
             });
+        } else if (copySourceToUse.type === 'shape') {
+            const sourceShape = copySourceToUse.data;
+            // Create new shape with same properties
+            import('../entities/Shape.js').then(({ Shape }) => {
+                const shape = new Shape(
+                    this.game.scene,
+                    { x: roundedX, y: roundedY, z: 0 },
+                    sourceShape.type,
+                    { width: sourceShape.size.width, height: sourceShape.size.height }
+                );
+                
+                // Copy shape settings
+                shape.align = sourceShape.align;
+                shape.justify = sourceShape.justify;
+                shape.gap = sourceShape.gap;
+                shape.setRotation(sourceShape.rotation || 0);
+                
+                this.shapes.push(shape);
+                
+                // Store in placed objects
+                this.placedObjects.push({
+                    category: 'shape',
+                    type: sourceShape.type,
+                    position: { x: roundedX, y: roundedY, z: 0 },
+                    size: { width: sourceShape.size.width, height: sourceShape.size.height },
+                    isEditorOnly: true,
+                    align: shape.align,
+                    justify: shape.justify,
+                    gap: shape.gap,
+                    rotation: shape.rotation,
+                    canTakeObjects: shape.canTakeObjects !== false // Default to true
+                });
+                
+                // Copy contained pegs in order
+                if (sourceShape.containedPegs && sourceShape.containedPegs.length > 0) {
+                    import('../entities/Peg.js').then(({ Peg }) => {
+                        const pegMaterial = this.game.physicsWorld.getPegMaterial();
+                        
+                        // Create pegs and add them to the shape in the same order
+                        sourceShape.containedPegs.forEach((sourcePeg, index) => {
+                            if (!sourcePeg || !sourcePeg.body) return;
+                            
+                            // Create new peg with same properties as source peg
+                            const peg = new Peg(
+                                this.game.scene,
+                                this.game.physicsWorld,
+                                { x: roundedX, y: roundedY, z: 0 }, // Will be repositioned by rearrangePegs
+                                sourcePeg.color,
+                                pegMaterial,
+                                sourcePeg.type,
+                                sourcePeg.size
+                            );
+                            
+                            // Copy rotation
+                            peg.mesh.rotation.z = sourcePeg.mesh.rotation.z || 0;
+                            const euler = new THREE.Euler(0, 0, peg.mesh.rotation.z);
+                            const quaternion = new THREE.Quaternion().setFromEuler(euler);
+                            peg.body.quaternion.set(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
+                            
+                            peg.pointValue = sourcePeg.pointValue || 300;
+                            peg.isOrange = sourcePeg.isOrange || false;
+                            peg.isGreen = sourcePeg.isGreen || false;
+                            peg.isPurple = sourcePeg.isPurple || false;
+                            
+                            this.game.pegs.push(peg);
+                            
+                            // Add peg to shape at the same index
+                            shape.addPeg(peg, index);
+                            
+                            // Store in placed objects
+                            this.placedObjects.push({
+                                category: 'peg',
+                                type: sourcePeg.type,
+                                size: sourcePeg.size,
+                                position: { x: roundedX, y: roundedY, z: 0 }, // Will be updated by rearrangePegs
+                                color: sourcePeg.color,
+                                rotation: peg.mesh.rotation.z
+                            });
+                        });
+                    });
+                }
+                
+                // Copy contained characteristics in order
+                if (sourceShape.containedCharacteristics && sourceShape.containedCharacteristics.length > 0) {
+                    import('../entities/Characteristic.js').then(({ Characteristic }) => {
+                        // Create characteristics and add them to the shape in the same order
+                        sourceShape.containedCharacteristics.forEach((sourceChar, index) => {
+                            if (!sourceChar || !sourceChar.mesh) return;
+                            
+                            // Create new characteristic with same properties as source characteristic
+                            const bounceType = sourceChar.bounceType || 'normal';
+                            const characteristic = new Characteristic(
+                                this.game.scene,
+                                this.game.physicsWorld,
+                                { x: roundedX, y: roundedY, z: 0 }, // Will be repositioned by rearrangeCharacteristics
+                                sourceChar.shape,
+                                sourceChar.size,
+                                bounceType
+                            );
+                            
+                            // Copy rotation
+                            if (sourceChar.rotation !== undefined) {
+                                characteristic.setRotation(sourceChar.rotation);
+                            }
+                            
+                            this.characteristics.push(characteristic);
+                            
+                            // Add characteristic to shape at the same index
+                            shape.addCharacteristic(characteristic, index);
+                            
+                            // Store in placed objects
+                            const toolType = sourceChar.shape === 'circle' ? 'round' : 'rect';
+                            this.placedObjects.push({
+                                category: 'characteristic',
+                                type: toolType,
+                                shape: sourceChar.shape,
+                                position: { x: roundedX, y: roundedY, z: 0 }, // Will be updated by rearrangeCharacteristics
+                                size: sourceChar.size,
+                                rotation: characteristic.rotation || 0,
+                                bounceType: bounceType
+                            });
+                        });
+                    });
+                }
+            });
+        } else if (copySourceToUse.type === 'characteristic') {
+            const sourceCharacteristic = copySourceToUse.data;
+            // Create new characteristic with same properties
+            import('../entities/Characteristic.js').then(({ Characteristic }) => {
+                const bounceType = sourceCharacteristic.bounceType || 'normal';
+                const characteristic = new Characteristic(
+                    this.game.scene,
+                    this.game.physicsWorld,
+                    { x: roundedX, y: roundedY, z: 0 },
+                    sourceCharacteristic.shape, // 'rect' or 'circle'
+                    sourceCharacteristic.size,
+                    bounceType
+                );
+                
+                // Copy rotation
+                if (sourceCharacteristic.rotation !== undefined) {
+                    characteristic.setRotation(sourceCharacteristic.rotation);
+                }
+                
+                this.characteristics.push(characteristic);
+                
+                // Store in placed objects
+                // Convert 'circle' back to 'round' for tool system consistency
+                const toolType = sourceCharacteristic.shape === 'circle' ? 'round' : 'rect';
+                this.placedObjects.push({
+                    category: 'characteristic',
+                    type: toolType, // Store as 'round' or 'rect' to match tool system
+                    shape: sourceCharacteristic.shape, // Store actual shape used by Characteristic
+                    position: { x: roundedX, y: roundedY, z: 0 },
+                    size: sourceCharacteristic.size,
+                    rotation: characteristic.rotation || 0,
+                    bounceType: bounceType
+                });
+                
+            });
+        }
+    }
+    
+    /**
+     * Clear copy source and preview, and deselect copy tool
+     */
+    clearCopySource() {
+        this.copySource = null;
+        if (this.copyPreview) {
+            // Remove preview group and all children
+            if (this.copyPreview.isGroup) {
+                this.copyPreview.traverse((child) => {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) child.material.dispose();
+                });
+            } else {
+                if (this.copyPreview.geometry) this.copyPreview.geometry.dispose();
+                if (this.copyPreview.material) this.copyPreview.material.dispose();
+            }
+            this.game.scene.remove(this.copyPreview);
+            this.copyPreview = null;
+        }
+        
+        // Deselect copy tool after placing
+        if (this.selectedTool && this.selectedTool.category === 'copy') {
+            this.selectedTool = null;
         }
     }
     
@@ -1668,6 +3015,7 @@ export class LevelEditor {
         this.initRotateToolbar();
         this.initCopyToolbar();
         this.initResizeToolbar();
+        this.initSettingsToolbar();
     }
     
     openFileOperations() {
@@ -1753,12 +3101,12 @@ export class LevelEditor {
         lineItem.addEventListener('click', () => this.selectTool('shape', { type: 'line' }));
         shapesItems.appendChild(lineItem);
         
-        // Circular shapes - 3 sizes (each for 16 pegs)
-        for (const [sizeName, pegSize] of Object.entries(this.pegSizes)) {
-            const item = this.createToolbarItem('circle-shape', sizeName, pegSize, 'circle');
-            item.addEventListener('click', () => this.selectTool('shape', { type: 'circle', size: sizeName }));
-            shapesItems.appendChild(item);
-        }
+        // Circular shapes - only largest size (can be resized)
+        const largestSize = 'large';
+        const largestPegSize = this.pegSizes[largestSize];
+        const item = this.createToolbarItem('circle-shape', largestSize, largestPegSize, 'circle');
+        item.addEventListener('click', () => this.selectTool('shape', { type: 'circle', size: largestSize }));
+        shapesItems.appendChild(item);
     }
     
     initStaticToolbar() {
@@ -1770,10 +3118,21 @@ export class LevelEditor {
         rectItem.addEventListener('click', () => this.selectTool('static', { type: 'rect' }));
         staticItems.appendChild(rectItem);
         
-        // Round static
-        const roundItem = this.createToolbarItem('static-round', 'round', null, 'circle');
-        roundItem.addEventListener('click', () => this.selectTool('static', { type: 'round' }));
-        staticItems.appendChild(roundItem);
+        // Round static - 3 sizes
+        // Default circle size (smallest) = 0.5
+        // Each subsequent size is 50% bigger
+        const defaultCircleRadius = 0.5;
+        const circleSizes = {
+            small: defaultCircleRadius,              // 0.5 (default)
+            base: defaultCircleRadius * 1.5,         // 0.75 (50% bigger)
+            large: defaultCircleRadius * 1.5 * 1.5   // 1.125 (50% bigger than base)
+        };
+        
+        for (const [sizeName, radius] of Object.entries(circleSizes)) {
+            const roundItem = this.createToolbarItem('static-round', 'round', radius, 'circle');
+            roundItem.addEventListener('click', () => this.selectTool('static', { type: 'round', size: sizeName }));
+            staticItems.appendChild(roundItem);
+        }
     }
     
     initSpacersToolbar() {
@@ -1828,6 +3187,531 @@ export class LevelEditor {
         const resizeItem = this.createToolbarItem('resize', 'resize', null, 'resize');
         resizeItem.addEventListener('click', () => this.selectTool('resize', { type: 'resize' }));
         eraserItems.appendChild(resizeItem);
+    }
+    
+    initSettingsToolbar() {
+        const eraserItems = document.getElementById('eraser-items');
+        if (!eraserItems) return;
+        
+        const settingsItem = this.createToolbarItem('settings', '⚙', null, 'settings');
+        settingsItem.addEventListener('click', () => this.selectTool('settings', { type: 'settings' }));
+        eraserItems.appendChild(settingsItem);
+    }
+    
+    openShapeSettings(shape) {
+        if (!shape) return;
+        
+        this.shapeForSettings = shape;
+        this.createSettingsModal();
+    }
+    
+    openCharacteristicSettings(characteristic) {
+        if (!characteristic) return;
+        
+        this.characteristicForSettings = characteristic;
+        this.createCharacteristicSettingsModal();
+    }
+    
+    createSettingsModal() {
+        // Remove existing modal if any
+        const existingModal = document.getElementById('shape-settings-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // Create overlay
+        const overlay = document.createElement('div');
+        overlay.id = 'shape-settings-overlay';
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+            pointer-events: auto;
+        `;
+        
+        // Create modal
+        const modal = document.createElement('div');
+        modal.id = 'shape-settings-modal';
+        modal.style.cssText = `
+            background: linear-gradient(135deg, #2a2a3e 0%, #1a1a2e 100%);
+            border: 3px solid #6495ed;
+            border-radius: 15px;
+            padding: 20px;
+            min-width: 400px;
+            max-width: 600px;
+        `;
+        
+        // Header
+        const header = document.createElement('div');
+        header.style.cssText = `
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #6495ed;
+            padding-bottom: 10px;
+        `;
+        
+        const title = document.createElement('h2');
+        title.textContent = 'Shape Settings';
+        title.style.cssText = `
+            color: white;
+            font-size: 28px;
+            margin: 0;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        `;
+        
+        const closeBtn = document.createElement('button');
+        closeBtn.textContent = '×';
+        closeBtn.style.cssText = `
+            background: rgba(255, 100, 100, 0.3);
+            border: 2px solid #ff6464;
+            border-radius: 8px;
+            color: #ff6464;
+            font-size: 32px;
+            font-weight: bold;
+            width: 50px;
+            height: 50px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            padding: 0;
+            line-height: 1;
+        `;
+        closeBtn.addEventListener('click', () => this.closeShapeSettings());
+        closeBtn.addEventListener('mouseenter', () => {
+            closeBtn.style.background = 'rgba(255, 100, 100, 0.5)';
+            closeBtn.style.transform = 'scale(1.1)';
+        });
+        closeBtn.addEventListener('mouseleave', () => {
+            closeBtn.style.background = 'rgba(255, 100, 100, 0.3)';
+            closeBtn.style.transform = 'scale(1)';
+        });
+        
+        header.appendChild(title);
+        header.appendChild(closeBtn);
+        
+        // Content
+        const content = document.createElement('div');
+        content.style.cssText = `
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        `;
+        
+        // Align setting (only for line shapes)
+        const alignGroup = document.createElement('div');
+        alignGroup.style.cssText = `display: flex; flex-direction: column; gap: 10px;`;
+        if (this.shapeForSettings.type === 'circle') {
+            alignGroup.style.display = 'none'; // Hide align for circle shapes
+        }
+        const alignLabel = document.createElement('label');
+        alignLabel.textContent = 'Vertical Align';
+        alignLabel.style.cssText = `color: white; font-size: 16px; font-weight: bold;`;
+        
+        const alignSelect = document.createElement('select');
+        alignSelect.id = 'shape-align-select';
+        alignSelect.style.cssText = `
+            padding: 10px;
+            background: rgba(30, 40, 60, 0.9);
+            border: 2px solid #6495ed;
+            border-radius: 8px;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+        `;
+        ['top', 'middle', 'bottom'].forEach(value => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = value.charAt(0).toUpperCase() + value.slice(1);
+            if (this.shapeForSettings.align === value) {
+                option.selected = true;
+            }
+            alignSelect.appendChild(option);
+        });
+        alignSelect.addEventListener('change', (e) => {
+            this.shapeForSettings.align = e.target.value;
+            this.shapeForSettings.rearrangePegs();
+            this.shapeForSettings.rearrangeCharacteristics();
+        });
+        
+        alignGroup.appendChild(alignLabel);
+        alignGroup.appendChild(alignSelect);
+        
+        // Justify setting (different options for line vs circle)
+        const justifyGroup = document.createElement('div');
+        justifyGroup.style.cssText = `display: flex; flex-direction: column; gap: 10px;`;
+        const justifyLabel = document.createElement('label');
+        justifyLabel.textContent = this.shapeForSettings.type === 'circle' ? 'Circle Justify' : 'Horizontal Justify';
+        justifyLabel.style.cssText = `color: white; font-size: 16px; font-weight: bold;`;
+        
+        const justifySelect = document.createElement('select');
+        justifySelect.id = 'shape-justify-select';
+        justifySelect.style.cssText = `
+            padding: 10px;
+            background: rgba(30, 40, 60, 0.9);
+            border: 2px solid #6495ed;
+            border-radius: 8px;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+        `;
+        
+        if (this.shapeForSettings.type === 'circle') {
+            // Circle justify options (12 total)
+            const circleOptions = [
+                // Reference point (4 options)
+                { value: 'top-center', label: 'Top Center' },
+                { value: 'right-center', label: 'Right Center' },
+                { value: 'bottom-center', label: 'Bottom Center' },
+                { value: 'left-center', label: 'Left Center' },
+                // Clockwise (4 options)
+                { value: 'top-clockwise', label: 'Top Clockwise' },
+                { value: 'right-clockwise', label: 'Right Clockwise' },
+                { value: 'bottom-clockwise', label: 'Bottom Clockwise' },
+                { value: 'left-clockwise', label: 'Left Clockwise' },
+                // Counter-clockwise (4 options)
+                { value: 'top-counter-clockwise', label: 'Top Counter-Clockwise' },
+                { value: 'right-counter-clockwise', label: 'Right Counter-Clockwise' },
+                { value: 'bottom-counter-clockwise', label: 'Bottom Counter-Clockwise' },
+                { value: 'left-counter-clockwise', label: 'Left Counter-Clockwise' },
+                // Space evenly (4 options)
+                { value: 'top-evenly', label: 'Top Evenly' },
+                { value: 'right-evenly', label: 'Right Evenly' },
+                { value: 'bottom-evenly', label: 'Bottom Evenly' },
+                { value: 'left-evenly', label: 'Left Evenly' }
+            ];
+            
+            circleOptions.forEach(({ value, label }) => {
+                const option = document.createElement('option');
+                option.value = value;
+                option.textContent = label;
+                if (this.shapeForSettings.justify === value) {
+                    option.selected = true;
+                }
+                justifySelect.appendChild(option);
+            });
+        } else {
+            // Line justify options
+            ['left', 'right', 'center', 'between', 'around'].forEach(value => {
+                const option = document.createElement('option');
+                option.value = value;
+                option.textContent = value.charAt(0).toUpperCase() + value.slice(1);
+                if (this.shapeForSettings.justify === value) {
+                    option.selected = true;
+                }
+                justifySelect.appendChild(option);
+            });
+        }
+        
+        justifySelect.addEventListener('change', (e) => {
+            this.shapeForSettings.justify = e.target.value;
+            this.shapeForSettings.rearrangePegs();
+            this.shapeForSettings.rearrangeCharacteristics();
+        });
+        
+        justifyGroup.appendChild(justifyLabel);
+        justifyGroup.appendChild(justifySelect);
+        
+        // Gap setting
+        const gapGroup = document.createElement('div');
+        gapGroup.style.cssText = `display: flex; flex-direction: column; gap: 10px;`;
+        const gapLabel = document.createElement('label');
+        gapLabel.textContent = 'Gap';
+        gapLabel.style.cssText = `color: white; font-size: 16px; font-weight: bold;`;
+        
+        const gapInput = document.createElement('input');
+        gapInput.id = 'shape-gap-input';
+        gapInput.type = 'number';
+        gapInput.step = '0.01';
+        gapInput.min = '0';
+        gapInput.value = this.shapeForSettings.gap;
+        gapInput.style.cssText = `
+            padding: 10px;
+            background: rgba(30, 40, 60, 0.9);
+            border: 2px solid #6495ed;
+            border-radius: 8px;
+            color: white;
+            font-size: 16px;
+        `;
+        gapInput.addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            if (!isNaN(value) && value >= 0) {
+                this.shapeForSettings.gap = value;
+                this.shapeForSettings.rearrangePegs();
+                this.shapeForSettings.rearrangeCharacteristics();
+            }
+        });
+        
+        gapGroup.appendChild(gapLabel);
+        gapGroup.appendChild(gapInput);
+        
+        // Can Take Objects checkbox
+        const canTakeObjectsGroup = document.createElement('div');
+        canTakeObjectsGroup.style.cssText = `display: flex; flex-direction: column; gap: 10px;`;
+        const canTakeObjectsLabel = document.createElement('label');
+        canTakeObjectsLabel.textContent = 'Can Take Objects';
+        canTakeObjectsLabel.style.cssText = `color: white; font-size: 16px; font-weight: bold;`;
+        
+        const canTakeObjectsCheckbox = document.createElement('input');
+        canTakeObjectsCheckbox.type = 'checkbox';
+        canTakeObjectsCheckbox.id = 'shape-can-take-objects';
+        canTakeObjectsCheckbox.checked = this.shapeForSettings.canTakeObjects !== false; // Default to true
+        canTakeObjectsCheckbox.style.cssText = `
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        `;
+        canTakeObjectsCheckbox.addEventListener('change', (e) => {
+            this.shapeForSettings.canTakeObjects = e.target.checked;
+            
+            // Update placed objects entry to sync with shape object
+            const placedObj = this.placedObjects.find(obj => {
+                if (obj.category === 'shape' && obj.position && this.shapeForSettings.position) {
+                    const objX = obj.position.x;
+                    const objY = obj.position.y;
+                    const shapeX = this.shapeForSettings.position.x;
+                    const shapeY = this.shapeForSettings.position.y;
+                    const distance = Math.sqrt(
+                        Math.pow(objX - shapeX, 2) + 
+                        Math.pow(objY - shapeY, 2)
+                    );
+                    return distance < 0.05;
+                }
+                return false;
+            });
+            if (placedObj) {
+                placedObj.canTakeObjects = e.target.checked;
+            }
+            
+            // Don't remove existing objects when toggling - they should stay where they are
+            // This setting only affects NEW placements, not existing contained objects
+        });
+        
+        const canTakeObjectsContainer = document.createElement('div');
+        canTakeObjectsContainer.style.cssText = `display: flex; align-items: center; gap: 10px;`;
+        canTakeObjectsContainer.appendChild(canTakeObjectsCheckbox);
+        canTakeObjectsContainer.appendChild(canTakeObjectsLabel);
+        
+        canTakeObjectsGroup.appendChild(canTakeObjectsContainer);
+        
+        content.appendChild(alignGroup);
+        content.appendChild(justifyGroup);
+        content.appendChild(gapGroup);
+        content.appendChild(canTakeObjectsGroup);
+        
+        modal.appendChild(header);
+        modal.appendChild(content);
+        overlay.appendChild(modal);
+        
+        // Close on overlay click
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                this.closeShapeSettings();
+            }
+        });
+        
+        document.body.appendChild(overlay);
+    }
+    
+    closeShapeSettings() {
+        const overlay = document.getElementById('shape-settings-overlay');
+        if (overlay) {
+            overlay.remove();
+        }
+        this.shapeForSettings = null;
+    }
+    
+    createCharacteristicSettingsModal() {
+        // Remove existing modal if any
+        const existingModal = document.getElementById('characteristic-settings-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // Create overlay
+        const overlay = document.createElement('div');
+        overlay.id = 'characteristic-settings-overlay';
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+            pointer-events: auto;
+        `;
+        
+        // Create modal
+        const modal = document.createElement('div');
+        modal.id = 'characteristic-settings-modal';
+        modal.style.cssText = `
+            background: linear-gradient(135deg, #2a2a3e 0%, #1a1a2e 100%);
+            border: 3px solid #6495ed;
+            border-radius: 15px;
+            padding: 20px;
+            min-width: 400px;
+            max-width: 600px;
+        `;
+        
+        // Header
+        const header = document.createElement('div');
+        header.style.cssText = `
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #6495ed;
+            padding-bottom: 10px;
+        `;
+        
+        const title = document.createElement('h2');
+        title.textContent = 'Characteristic Settings';
+        title.style.cssText = `
+            color: white;
+            font-size: 28px;
+            margin: 0;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        `;
+        
+        const closeBtn = document.createElement('button');
+        closeBtn.textContent = '×';
+        closeBtn.style.cssText = `
+            background: rgba(255, 100, 100, 0.3);
+            border: 2px solid #ff6464;
+            border-radius: 8px;
+            color: #ff6464;
+            font-size: 32px;
+            font-weight: bold;
+            width: 50px;
+            height: 50px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            padding: 0;
+            line-height: 1;
+        `;
+        closeBtn.addEventListener('click', () => this.closeCharacteristicSettings());
+        closeBtn.addEventListener('mouseenter', () => {
+            closeBtn.style.background = 'rgba(255, 100, 100, 0.5)';
+            closeBtn.style.transform = 'scale(1.1)';
+        });
+        closeBtn.addEventListener('mouseleave', () => {
+            closeBtn.style.background = 'rgba(255, 100, 100, 0.3)';
+            closeBtn.style.transform = 'scale(1)';
+        });
+        
+        header.appendChild(title);
+        header.appendChild(closeBtn);
+        
+        // Content
+        const content = document.createElement('div');
+        content.style.cssText = `
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        `;
+        
+        // Bounce Type setting
+        const bounceGroup = document.createElement('div');
+        bounceGroup.style.cssText = `display: flex; flex-direction: column; gap: 10px;`;
+        const bounceLabel = document.createElement('label');
+        bounceLabel.textContent = 'Bounce Type';
+        bounceLabel.style.cssText = `color: white; font-size: 16px; font-weight: bold;`;
+        
+        const bounceSelect = document.createElement('select');
+        bounceSelect.id = 'characteristic-bounce-select';
+        bounceSelect.style.cssText = `
+            padding: 10px;
+            background: rgba(30, 40, 60, 0.9);
+            border: 2px solid #6495ed;
+            border-radius: 8px;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+        `;
+        
+        const bounceTypes = [
+            { value: 'normal', label: 'Normal (Grey)' },
+            { value: 'dampened', label: 'Dampened (Dark Grey)' },
+            { value: 'no-bounce', label: 'No Bounce (Very Dark)' },
+            { value: 'super-bouncy', label: 'Super Bouncy (Crimson)' }
+        ];
+        
+        bounceTypes.forEach(({ value, label }) => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = label;
+            if (this.characteristicForSettings.bounceType === value) {
+                option.selected = true;
+            }
+            bounceSelect.appendChild(option);
+        });
+        
+        bounceSelect.addEventListener('change', (e) => {
+            this.characteristicForSettings.setBounceType(e.target.value);
+            
+            // Update in placed objects
+            const placedObj = this.placedObjects.find(obj => {
+                if (obj.category === 'characteristic' && obj.position && this.characteristicForSettings.position) {
+                    const objX = obj.position.x;
+                    const objY = obj.position.y;
+                    const charX = this.characteristicForSettings.position.x;
+                    const charY = this.characteristicForSettings.position.y;
+                    const distance = Math.sqrt(
+                        Math.pow(objX - charX, 2) + 
+                        Math.pow(objY - charY, 2)
+                    );
+                    return distance < 0.05;
+                }
+                return false;
+            });
+            
+            if (placedObj) {
+                placedObj.bounceType = e.target.value;
+            }
+        });
+        
+        bounceGroup.appendChild(bounceLabel);
+        bounceGroup.appendChild(bounceSelect);
+        
+        content.appendChild(bounceGroup);
+        
+        modal.appendChild(header);
+        modal.appendChild(content);
+        overlay.appendChild(modal);
+        
+        // Close on overlay click
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                this.closeCharacteristicSettings();
+            }
+        });
+        
+        document.body.appendChild(overlay);
+    }
+    
+    closeCharacteristicSettings() {
+        const overlay = document.getElementById('characteristic-settings-overlay');
+        if (overlay) {
+            overlay.remove();
+        }
+        this.characteristicForSettings = null;
     }
     
     createToolbarItem(id, label, data, shape) {
@@ -1966,6 +3850,17 @@ export class LevelEditor {
             preview.style.display = 'flex';
             preview.style.alignItems = 'center';
             preview.style.justifyContent = 'center';
+        } else if (shape === 'settings') {
+            // Settings tool icon - gear symbol (SVG)
+            preview.style.background = 'rgba(150, 100, 255, 0.5)';
+            preview.style.width = '70%';
+            preview.style.height = '70%';
+            preview.style.position = 'relative';
+            preview.innerHTML = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 15.5A3.5 3.5 0 0 1 8.5 12A3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5a3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97c0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.4-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1c0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66Z" fill="#9664ff"/></svg>';
+            preview.style.color = '#9664ff';
+            preview.style.display = 'flex';
+            preview.style.alignItems = 'center';
+            preview.style.justifyContent = 'center';
         }
         
         item.appendChild(preview);
@@ -1973,7 +3868,7 @@ export class LevelEditor {
     }
     
     selectTool(category, toolData) {
-        // Hide all spacer handles when switching away from resize tool
+        // Hide all spacer/shape/characteristic handles when switching away from resize tool
         if (category !== 'resize') {
             if (this.spacers) {
                 this.spacers.forEach(spacer => {
@@ -1982,16 +3877,46 @@ export class LevelEditor {
                     }
                 });
             }
+            if (this.shapes) {
+                this.shapes.forEach(shape => {
+                    if (shape && shape.removeHandles) {
+                        shape.removeHandles();
+                    }
+                });
+            }
+            if (this.characteristics) {
+                this.characteristics.forEach(characteristic => {
+                    if (characteristic && characteristic.removeHandles) {
+                        characteristic.removeHandles();
+                    }
+                });
+            }
             this.selectedSpacer = null;
+            this.selectedShape = null;
+            this.selectedCharacteristic = null;
         }
         
         // Clear selection indicators when switching away from move/rotate tools
         if (category !== 'move' && category !== 'rotate') {
             this.updateSelectionIndicator(null);
             this.selectedPeg = null;
+            // Don't clear selectedShape/selectedCharacteristic/selectedSpacer here - they might be needed for resize tool
         }
         
         this.selectedTool = { category, ...toolData };
+        
+        // If resize tool is selected, show handles on already-selected objects
+        if (category === 'resize') {
+            if (this.selectedSpacer && this.selectedSpacer.createHandles) {
+                this.selectedSpacer.createHandles();
+            }
+            if (this.selectedShape && this.selectedShape.createHandles) {
+                this.selectedShape.createHandles();
+            }
+            if (this.selectedCharacteristic && this.selectedCharacteristic.createHandles) {
+                this.selectedCharacteristic.createHandles();
+            }
+        }
         
         // Update UI - remove previous selection
         document.querySelectorAll('.toolbar-item').forEach(item => {
@@ -2054,6 +3979,9 @@ export class LevelEditor {
             previewClass = '';
         } else if (category === 'resize') {
             previewText = 'Resize Tool (Click spacer to resize)';
+            previewClass = '';
+        } else if (category === 'settings') {
+            previewText = 'Settings Tool (Click shape to edit settings)';
             previewClass = '';
         }
         
@@ -2277,15 +4205,139 @@ export class LevelEditor {
         }
         
         // Build level data with type and size information
+        // Collect all pegs that are NOT contained in shapes
+        const pegsInShapes = new Set();
+        this.shapes.forEach(shape => {
+            if (shape.containedPegs) {
+                shape.containedPegs.forEach(peg => {
+                    pegsInShapes.add(peg);
+                });
+            }
+        });
+        
         const levelData = {
             name: this.currentLevelName,
-            pegs: this.placedObjects.filter(obj => obj.category === 'peg').map(obj => ({
+            pegs: this.placedObjects.filter(obj => {
+                if (obj.category !== 'peg') return false;
+                // Check if this peg is contained in a shape
+                const peg = this.pegs.find(p => {
+                    if (p.body && obj.position) {
+                        const dx = p.body.position.x - obj.position.x;
+                        const dy = p.body.position.y - obj.position.y;
+                        return Math.sqrt(dx * dx + dy * dy) < 0.05;
+                    }
+                    return false;
+                });
+                return peg && !pegsInShapes.has(peg);
+            }).map(obj => ({
                 x: obj.position.x,
                 y: obj.position.y,
                 z: obj.position.z || 0,
                 color: obj.color || '#4a90e2',
                 type: obj.type || 'round',
-                size: obj.size || 'base'
+                size: obj.size || 'base',
+                rotation: obj.rotation || 0
+            })),
+            characteristics: this.placedObjects.filter(obj => {
+                if (obj.category !== 'characteristic') return false;
+                // Check if this characteristic is contained in a shape
+                const char = this.characteristics.find(c => {
+                    if (c.body && obj.position) {
+                        const dx = c.body.position.x - obj.position.x;
+                        const dy = c.body.position.y - obj.position.y;
+                        return Math.sqrt(dx * dx + dy * dy) < 0.05;
+                    }
+                    return false;
+                });
+                return char && !char.parentShape;
+            }).map(obj => ({
+                x: obj.position.x,
+                y: obj.position.y,
+                z: obj.position.z || 0,
+                shape: obj.shape || obj.type, // Use 'shape' property if available ('circle' or 'rect'), otherwise fall back to 'type' ('round' or 'rect')
+                size: obj.size,
+                rotation: obj.rotation || 0,
+                bounceType: obj.bounceType || 'normal'
+            })),
+            shapes: this.shapes.map(shape => {
+                // Find corresponding placed object to get saved properties
+                const obj = this.placedObjects.find(o => {
+                    if (o.category === 'shape' && shape.position && o.position) {
+                        const dx = shape.position.x - o.position.x;
+                        const dy = shape.position.y - o.position.y;
+                        return Math.sqrt(dx * dx + dy * dy) < 0.05;
+                    }
+                    return false;
+                });
+                
+                const shapeData = {
+                    x: shape.position.x,
+                    y: shape.position.y,
+                    z: shape.position.z || 0,
+                    type: shape.type || 'line',
+                    size: shape.size,
+                    align: (obj && obj.align !== undefined) ? obj.align : (shape.type === 'circle' ? undefined : shape.align || 'middle'),
+                    justify: (obj && obj.justify !== undefined) ? obj.justify : (shape.type === 'circle' ? shape.justify || 'top-center' : shape.justify || 'center'),
+                    gap: (obj && obj.gap !== undefined) ? obj.gap : shape.gap || 0.1,
+                    rotation: shape.rotation || 0,
+                    canTakeObjects: (obj && obj.canTakeObjects !== undefined) ? obj.canTakeObjects : (shape.canTakeObjects !== false)
+                };
+                
+                // Add contained pegs if any
+                if (shape.containedPegs && shape.containedPegs.length > 0) {
+                    shapeData.containedPegs = shape.containedPegs.map(peg => {
+                        // Find peg in placedObjects to get color
+                        const pegObj = this.placedObjects.find(p => {
+                            if (p.category === 'peg' && peg.body && p.position) {
+                                const dx = peg.body.position.x - p.position.x;
+                                const dy = peg.body.position.y - p.position.y;
+                                return Math.sqrt(dx * dx + dy * dy) < 0.05;
+                            }
+                            return false;
+                        });
+                        return {
+                            x: peg.body.position.x,
+                            y: peg.body.position.y,
+                            z: peg.body.position.z || 0,
+                            color: pegObj ? (pegObj.color || '#4a90e2') : '#4a90e2',
+                            type: peg.type || 'round',
+                            size: peg.size || 'base',
+                            rotation: peg.mesh.rotation.z || 0
+                        };
+                    });
+                }
+                
+                // Add contained characteristics if any
+                if (shape.containedCharacteristics && shape.containedCharacteristics.length > 0) {
+                    shapeData.containedCharacteristics = shape.containedCharacteristics.map(char => {
+                        // Find characteristic in placedObjects to get bounceType
+                        const charObj = this.placedObjects.find(c => {
+                            if (c.category === 'characteristic' && char.body && c.position) {
+                                const dx = char.body.position.x - c.position.x;
+                                const dy = char.body.position.y - c.position.y;
+                                return Math.sqrt(dx * dx + dy * dy) < 0.05;
+                            }
+                            return false;
+                        });
+                        return {
+                            x: char.body.position.x,
+                            y: char.body.position.y,
+                            z: char.body.position.z || 0,
+                            shape: char.shape || 'rect',
+                            size: char.size,
+                            rotation: char.rotation || 0,
+                            bounceType: charObj ? (charObj.bounceType || 'normal') : (char.bounceType || 'normal')
+                        };
+                    });
+                }
+                
+                return shapeData;
+            }),
+            spacers: this.placedObjects.filter(obj => obj.category === 'spacer').map(obj => ({
+                x: obj.position.x,
+                y: obj.position.y,
+                z: obj.position.z || 0,
+                size: obj.size || { width: 1, height: 1 }
             }))
         };
         

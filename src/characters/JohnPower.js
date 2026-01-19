@@ -37,9 +37,11 @@ export class JohnPower {
             return true;
         } else if (this.game.selectedPower === 'rapid') {
             // Rapid shot: initial shot + 2 more in succession
-            // Only decrement ball count once
-            this.game.ballsRemaining--;
-            this.game.updateBallsRemainingUI();
+            // Only decrement ball count once (unless in editor testing mode - unlimited balls)
+            if (!(this.game.levelEditor && this.game.levelEditor.testingMode)) {
+                this.game.ballsRemaining--;
+                this.game.updateBallsRemainingUI();
+            }
 
             // Fire initial shot (white ball)
             this.game.spawnBall(spawnX, spawnY, spawnZ, originalVelocity, originalVelocity, false);

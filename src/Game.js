@@ -38,6 +38,9 @@ export class Game {
         // Game state
         this.balls = [];
         this.pegs = [];
+        this.characteristics = []; // Array of characteristic objects
+        this.shapes = []; // Array of shape objects (for level loading)
+        this.spacers = []; // Array of spacer objects (for level loading)
         this.walls = [];
         this.bucket = null;
         this.lastTime = 0;
@@ -117,6 +120,7 @@ export class Game {
         
         // Trajectory guide
         this.trajectoryGuide = null;
+        this.mirrorTrajectoryGuide = null; // For mikey's ghost ball
         this.mouseX = 0;
         this.mouseY = 0;
         
@@ -265,6 +269,7 @@ export class Game {
         const levels = [
             { name: 'Level 1', path: 'levels/level1.json' },
             { name: 'Level 2', path: 'levels/level2.json' },
+            { name: 'Level 3', path: 'levels/level3.json' },
             { name: 'Test Level', path: 'levels/test-level.json' }
         ];
         
@@ -967,8 +972,8 @@ export class Game {
             return;
         }
         
-        // Don't allow firing if no balls remaining
-        if (this.ballsRemaining <= 0) {
+        // Don't allow firing if no balls remaining (unless in editor testing mode - unlimited balls)
+        if (this.ballsRemaining <= 0 && !(this.levelEditor && this.levelEditor.testingMode)) {
             return;
         }
         
@@ -1119,9 +1124,11 @@ export class Game {
         
         if (!johnPowerUsed) {
             // Normal shot or quill shot
-            // Decrement balls remaining and update UI
-            this.ballsRemaining--;
-            this.updateBallsRemainingUI();
+            // Decrement balls remaining and update UI (unless in editor testing mode - unlimited balls)
+            if (!(this.levelEditor && this.levelEditor.testingMode)) {
+                this.ballsRemaining--;
+                this.updateBallsRemainingUI();
+            }
             
             // Check if quill shot should be active (based on power turns remaining, not just the flag)
             // Quill shot is available if: has power turns AND is Spikey AND quill shot was activated (flag is true)
@@ -1251,9 +1258,11 @@ export class Game {
             this.spawnBall(spawnX, spawnY, spawnZ, velocity, originalVelocity, isYellow);
         });
         
-        // Only decrement ball count once for spread shot
-        this.ballsRemaining--;
-        this.updateBallsRemainingUI();
+        // Only decrement ball count once for spread shot (unless in editor testing mode - unlimited balls)
+        if (!(this.levelEditor && this.levelEditor.testingMode)) {
+            this.ballsRemaining--;
+            this.updateBallsRemainingUI();
+        }
     }
     
     spawnBomb(spawnX, spawnY, spawnZ, velocity) {
@@ -1269,9 +1278,11 @@ export class Game {
         }
         this.bombs.push(bomb);
         
-        // Decrement ball count
-        this.ballsRemaining--;
-        this.updateBallsRemainingUI();
+        // Decrement ball count (unless in editor testing mode - unlimited balls)
+        if (!(this.levelEditor && this.levelEditor.testingMode)) {
+            this.ballsRemaining--;
+            this.updateBallsRemainingUI();
+        }
     }
     
     explodeBomb(bomb) {
@@ -1537,12 +1548,30 @@ export class Game {
         this.trajectoryGuide = new THREE.Line(geometry, material);
         this.trajectoryGuide.visible = false;
         this.scene.add(this.trajectoryGuide);
+        
+        // Create mirrored trajectory guide for mikey's ghost ball (60% opacity of standard guide)
+        const mirrorGeometry = new THREE.BufferGeometry().setFromPoints(points);
+        const mirrorMaterial = new THREE.LineBasicMaterial({
+            color: 0xffff00, // Yellow
+            linewidth: 2,
+            transparent: true,
+            opacity: 0.36 // 60% of 0.6
+        });
+        
+        this.mirrorTrajectoryGuide = new THREE.Line(mirrorGeometry, mirrorMaterial);
+        this.mirrorTrajectoryGuide.visible = false;
+        this.scene.add(this.mirrorTrajectoryGuide);
     }
     
     updateTrajectoryGuide() {
-        if (!this.trajectoryGuide || this.balls.length > 0 || this.ballsRemaining <= 0) {
+        // In editor testing mode, always show trajectory guide (unlimited balls)
+        const hasBallsLeft = (this.levelEditor && this.levelEditor.testingMode) || this.ballsRemaining > 0;
+        if (!this.trajectoryGuide || this.balls.length > 0 || !hasBallsLeft) {
             if (this.trajectoryGuide) {
                 this.trajectoryGuide.visible = false;
+            }
+            if (this.mirrorTrajectoryGuide) {
+                this.mirrorTrajectoryGuide.visible = false;
             }
             return;
         }
@@ -1584,6 +1613,9 @@ export class Game {
         
         if (distance < 0.01) {
             this.trajectoryGuide.visible = false;
+            if (this.mirrorTrajectoryGuide) {
+                this.mirrorTrajectoryGuide.visible = false;
+            }
             return;
         }
         
@@ -1626,6 +1658,19 @@ export class Game {
         // Update the line geometry
         this.trajectoryGuide.geometry.setFromPoints(points);
         this.trajectoryGuide.visible = true;
+        
+        // Update mirrored trajectory guide for mikey's ghost ball if power is active
+        const isMikeyPowerActive = this.selectedCharacter?.id === 'mikey' && this.powerTurnsRemaining > 0;
+        if (isMikeyPowerActive && this.mirrorTrajectoryGuide) {
+            // Calculate mirrored trajectory: same spawn position, but mirror velocity X
+            // The ghost ball mirrors the white ball's path along X-axis
+            const mirroredVelocityX = -velocityX; // Mirror velocity along X-axis
+            const mirroredPoints = this.calculateTrajectory(spawnX, spawnY, mirroredVelocityX, velocityY);
+            this.mirrorTrajectoryGuide.geometry.setFromPoints(mirroredPoints);
+            this.mirrorTrajectoryGuide.visible = true;
+        } else if (this.mirrorTrajectoryGuide) {
+            this.mirrorTrajectoryGuide.visible = false;
+        }
     }
     
     calculateTrajectory(startX, startY, velocityX, velocityY) {
@@ -1691,11 +1736,19 @@ export class Game {
         if (this.trajectoryGuide) {
             this.trajectoryGuide.visible = false;
         }
+        if (this.mirrorTrajectoryGuide) {
+            this.mirrorTrajectoryGuide.visible = false;
+        }
     }
     
     updateBallsRemainingUI() {
         if (this.ballsRemainingElement) {
-            this.ballsRemainingElement.textContent = `Balls: ${this.ballsRemaining}`;
+            // Show "Unlimited" in editor testing mode
+            if (this.levelEditor && this.levelEditor.testingMode) {
+                this.ballsRemainingElement.textContent = `Balls: Unlimited`;
+            } else {
+                this.ballsRemainingElement.textContent = `Balls: ${this.ballsRemaining}`;
+            }
         }
     }
     
@@ -1834,7 +1887,10 @@ export class Game {
         // Game is over if:
         // 1. No balls remaining AND no active balls
         // 2. All orange pegs cleared (goalProgress >= goalTarget)
-        const noBallsLeft = this.ballsRemaining <= 0 && this.balls.length === 0;
+        // In editor testing mode, never consider game over due to no balls (unlimited balls)
+        const noBallsLeft = !(this.levelEditor && this.levelEditor.testingMode) && 
+                           this.ballsRemaining <= 0 && 
+                           this.balls.length === 0;
         const allOrangePegsCleared = this.goalProgress >= this.goalTarget;
         
         if (noBallsLeft || allOrangePegsCleared) {
@@ -2410,6 +2466,38 @@ export class Game {
                 
                 this.pegs.push(peg);
             });
+            
+            // Create characteristics from level data
+            if (levelData.characteristics && Array.isArray(levelData.characteristics)) {
+                import('./entities/Characteristic.js').then(({ Characteristic }) => {
+                    levelData.characteristics.forEach(charData => {
+                        const roundedX = this.roundToDecimals(charData.x);
+                        const roundedY = this.roundToDecimals(charData.y);
+                        const shapeType = charData.shape || 'rect'; // 'rect' or 'round'
+                        const size = charData.size || (shapeType === 'round' ? { radius: 0.5 } : { width: 1, height: 1 });
+                        const rotation = charData.rotation || 0;
+                        const bounceType = charData.bounceType || 'normal';
+                        
+                        const characteristic = new Characteristic(
+                            this.scene,
+                            this.physicsWorld,
+                            { x: roundedX, y: roundedY, z: charData.z || 0 },
+                            shapeType,
+                            size,
+                            bounceType
+                        );
+                        
+                        if (rotation !== 0) {
+                            characteristic.setRotation(rotation);
+                        }
+                        
+                        this.characteristics.push(characteristic);
+                    });
+                });
+            }
+            
+            // Shapes and spacers are editor-only tools and should NOT load in the game
+            // They are saved separately in *_dev.json files for editing purposes
             
             // Skip special peg assignment for test level (only blue pegs)
             const isTestLevel = levelData.name && levelData.name.toLowerCase().includes('test');

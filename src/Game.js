@@ -269,7 +269,7 @@ export class Game {
         const levels = [
             { name: 'Level 1', path: 'levels/level1.json' },
             { name: 'Level 2', path: 'levels/level2.json' },
-            { name: 'Level 3', path: 'levels/Level3.json' }
+            { name: 'Level 3', path: 'levels/level3.json' }
         ];
         
         // Create level option elements

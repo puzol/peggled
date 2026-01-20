@@ -269,10 +269,7 @@ export class Game {
         const levels = [
             { name: 'Level 1', path: 'levels/level1.json' },
             { name: 'Level 2', path: 'levels/level2.json' },
-            { name: 'Level 3', path: 'levels/level3.json' },
-            { name: 'Test Level', path: 'levels/test-level.json' },
-            { name: 'DR', path: 'levels/dr.json' },
-            { name: 'Lvl3', path: 'levels/lvl3.json' }
+            { name: 'Level 3', path: 'levels/Level3.json' }
         ];
         
         // Create level option elements
@@ -2466,6 +2463,15 @@ export class Game {
                 peg.isGreen = false;
                 peg.isPurple = false;
                 
+                // Apply rotation if specified
+                if (pegData.rotation !== undefined && pegData.rotation !== 0) {
+                    peg.mesh.rotation.z = pegData.rotation;
+                    // Update physics body rotation to match
+                    const euler = new THREE.Euler(0, 0, pegData.rotation);
+                    const quaternion = new THREE.Quaternion().setFromEuler(euler);
+                    peg.body.quaternion.set(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
+                }
+                
                 this.pegs.push(peg);
             });
             
@@ -2504,8 +2510,12 @@ export class Game {
             // Shapes and spacers are editor-only tools and should NOT load in the game
             // They are saved separately in *_dev.json files for editing purposes
             
-            // Skip special peg assignment for test level (only blue pegs)
-            const isTestLevel = levelData.name && levelData.name.toLowerCase().includes('test');
+            // Skip special peg assignment only for "Test Level" specifically (only blue pegs)
+            // Other test levels like "test6" should still get special pegs
+            const isTestLevel = levelData.name && (
+                levelData.name.toLowerCase() === 'test level' || 
+                levelData.name.toLowerCase() === 'test-level'
+            );
             
             if (!isTestLevel) {
                 // Randomly select pegs for special types

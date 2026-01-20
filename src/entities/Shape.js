@@ -867,6 +867,19 @@ export class Shape {
             // Update peg position in world space
             peg.body.position.set(xWorld, yWorld, 0);
             peg.mesh.position.set(xWorld, yWorld, peg.mesh.position.z || 0);
+            
+            // For rectangle and dome pegs, rotate them to match the shape's rotation
+            // Round pegs don't need rotation since they're symmetrical
+            if (peg.type === 'rect' || peg.type === 'dome') {
+                // Rectangle pegs should align with the shape's direction (along the line)
+                // The shape's rotation determines the peg's rotation
+                peg.mesh.rotation.z = this.rotation;
+                
+                // Update physics body rotation to match
+                const euler = new THREE.Euler(0, 0, this.rotation);
+                const quaternion = new THREE.Quaternion().setFromEuler(euler);
+                peg.body.quaternion.set(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
+            }
         });
     }
     

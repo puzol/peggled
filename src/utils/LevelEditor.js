@@ -909,6 +909,68 @@ export class LevelEditor {
         if (this.shapes && this.shapes.length > 0) {
             const shape = this.findShapeAtPosition(worldX, worldY);
             if (shape) {
+                // Remove all contained pegs from game.pegs array before shape.remove() cleans them up
+                if (shape.containedPegs && shape.containedPegs.length > 0) {
+                    shape.containedPegs.forEach(peg => {
+                        // Remove from game.pegs array
+                        if (this.game && this.game.pegs) {
+                            const pegIndex = this.game.pegs.indexOf(peg);
+                            if (pegIndex !== -1) {
+                                this.game.pegs.splice(pegIndex, 1);
+                            }
+                        }
+                        
+                        // Remove from editor's pegs array if it exists
+                        if (this.pegs) {
+                            const editorPegIndex = this.pegs.indexOf(peg);
+                            if (editorPegIndex !== -1) {
+                                this.pegs.splice(editorPegIndex, 1);
+                            }
+                        }
+                        
+                        // Remove from placedObjects
+                        this.placedObjects = this.placedObjects.filter(obj => {
+                            if (obj.category === 'peg' && peg.body && obj.position) {
+                                const dx = peg.body.position.x - obj.position.x;
+                                const dy = peg.body.position.y - obj.position.y;
+                                return Math.sqrt(dx * dx + dy * dy) >= 0.05; // Keep if not matching
+                            }
+                            return true;
+                        });
+                    });
+                }
+                
+                // Remove all contained characteristics from game.characteristics array
+                if (shape.containedCharacteristics && shape.containedCharacteristics.length > 0) {
+                    shape.containedCharacteristics.forEach(char => {
+                        // Remove from game.characteristics array
+                        if (this.game && this.game.characteristics) {
+                            const charIndex = this.game.characteristics.indexOf(char);
+                            if (charIndex !== -1) {
+                                this.game.characteristics.splice(charIndex, 1);
+                            }
+                        }
+                        
+                        // Remove from editor's characteristics array if it exists
+                        if (this.characteristics) {
+                            const editorCharIndex = this.characteristics.indexOf(char);
+                            if (editorCharIndex !== -1) {
+                                this.characteristics.splice(editorCharIndex, 1);
+                            }
+                        }
+                        
+                        // Remove from placedObjects
+                        this.placedObjects = this.placedObjects.filter(obj => {
+                            if (obj.category === 'characteristic' && char.body && obj.position) {
+                                const dx = char.body.position.x - obj.position.x;
+                                const dy = char.body.position.y - obj.position.y;
+                                return Math.sqrt(dx * dx + dy * dy) >= 0.05; // Keep if not matching
+                            }
+                            return true;
+                        });
+                    });
+                }
+                
                 // Remove shape and all contained pegs (handled in shape.remove())
                 shape.remove();
                 const shapeIndex = this.shapes.indexOf(shape);
@@ -2072,7 +2134,17 @@ export class LevelEditor {
                 'normal' // Default bounce type
             );
             
+            // Add to editor's characteristics array
+            if (!this.characteristics) {
+                this.characteristics = [];
+            }
             this.characteristics.push(characteristic);
+            
+            // Add to game's characteristics array (needed for saving)
+            if (!this.game.characteristics) {
+                this.game.characteristics = [];
+            }
+            this.game.characteristics.push(characteristic);
             
             // Check if characteristic is being placed inside a shape
             try {
@@ -4191,10 +4263,235 @@ export class LevelEditor {
         try {
             const text = await file.text();
             const levelData = JSON.parse(text);
-            // TODO: Load level data and place objects
-            console.log('Level loaded:', levelData);
+            
+            // Set level name
+            this.currentLevelName = levelData.name || 'Untitled Level';
+            
+            // Ensure game is initialized
+            if (this.game && (!this.game.scene || !this.game.physicsWorld)) {
+                if (this.game.init && typeof this.game.init === 'function') {
+                    await this.game.init();
+                }
+            }
+            
+            // Clear all existing objects
+            this.clearAllObjects();
+            
+            // Load pegs from level data
+            if (levelData.pegs && Array.isArray(levelData.pegs)) {
+                await this.loadPegsFromData(levelData.pegs);
+            }
+            
+            // Load characteristics from level data
+            if (levelData.characteristics && Array.isArray(levelData.characteristics)) {
+                await this.loadCharacteristicsFromData(levelData.characteristics);
+            }
+            
+            // Try to load dev file if it exists (for shapes and spacers)
+            // The dev file should be in the same directory with _dev.json suffix
+            const fileName = file.name.replace('.json', '');
+            const devFileName = `${fileName}_dev.json`;
+            
+            // Note: In browser, we can't directly read from filesystem
+            // The user would need to manually select the dev file
+            // For now, we'll skip dev file loading and let user know
+            
+            // Mark level as loaded
+            this.levelLoaded = true;
+            this.switchToObjectsButton();
+            this.closeFileOperations();
+            
+            console.log(`Level loaded: ${this.currentLevelName}`, {
+                pegs: levelData.pegs?.length || 0,
+                characteristics: levelData.characteristics?.length || 0
+            });
         } catch (error) {
             console.error('Error loading level:', error);
+            alert('Error loading level: ' + error.message);
+        }
+    }
+    
+    clearAllObjects() {
+        // Clear all pegs
+        if (this.game && this.game.pegs) {
+            this.game.pegs.forEach(peg => {
+                if (peg && peg.remove) {
+                    peg.remove();
+                }
+            });
+            this.game.pegs = [];
+        }
+        
+        // Clear all characteristics
+        if (this.game && this.game.characteristics) {
+            this.game.characteristics.forEach(char => {
+                if (char && char.remove) {
+                    char.remove();
+                }
+            });
+            this.game.characteristics = [];
+        }
+        
+        // Clear all shapes
+        if (this.shapes) {
+            this.shapes.forEach(shape => {
+                if (shape && shape.remove) {
+                    shape.remove();
+                }
+            });
+            this.shapes = [];
+        }
+        
+        // Clear all spacers
+        if (this.spacers) {
+            this.spacers.forEach(spacer => {
+                if (spacer && spacer.remove) {
+                    spacer.remove();
+                }
+            });
+            this.spacers = [];
+        }
+        
+        // Clear editor arrays
+        this.characteristics = [];
+        this.pegs = [];
+        
+        // Clear placed objects
+        this.placedObjects = [];
+        this.undoStack = [];
+        this.redoStack = [];
+        
+        // Clear selections
+        this.selectedPeg = null;
+        this.selectedShape = null;
+        this.selectedCharacteristic = null;
+        this.selectedSpacer = null;
+        this.selectedTool = null;
+        this.updateSelectionIndicator(null);
+    }
+    
+    async loadPegsFromData(pegsData) {
+        if (!this.game || !this.game.scene || !this.game.physicsWorld) {
+            console.error('Cannot load pegs: game not initialized');
+            return;
+        }
+        
+        const { Peg } = await import('../entities/Peg.js');
+        const pegMaterial = this.game.physicsWorld.getPegMaterial();
+        
+        for (const pegData of pegsData) {
+            // Handle color
+            let baseColor;
+            if (pegData.color) {
+                if (typeof pegData.color === 'string') {
+                    // Convert hex string to number
+                    baseColor = parseInt(pegData.color.replace('#', ''), 16);
+                } else {
+                    baseColor = pegData.color; // Already a number
+                }
+            } else {
+                baseColor = 0x4a90e2; // Default blue
+            }
+            
+            const roundedX = this.roundToDecimals(pegData.x);
+            const roundedY = this.roundToDecimals(pegData.y);
+            const pegType = pegData.type || 'round';
+            const pegSize = pegData.size || 'base';
+            const rotation = pegData.rotation || 0;
+            
+            const peg = new Peg(
+                this.game.scene,
+                this.game.physicsWorld,
+                { x: roundedX, y: roundedY, z: pegData.z || 0 },
+                baseColor,
+                pegMaterial,
+                pegType,
+                pegSize
+            );
+            
+            peg.pointValue = 300;
+            peg.isOrange = false;
+            peg.isGreen = false;
+            peg.isPurple = false;
+            
+            // Apply rotation
+            if (rotation !== 0) {
+                peg.mesh.rotation.z = rotation;
+                const euler = new THREE.Euler(0, 0, rotation);
+                const quaternion = new THREE.Quaternion().setFromEuler(euler);
+                peg.body.quaternion.set(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
+            }
+            
+            // Add to game and editor
+            this.game.pegs.push(peg);
+            if (!this.pegs) {
+                this.pegs = [];
+            }
+            this.pegs.push(peg);
+            
+            // Store in placed objects
+            this.placedObjects.push({
+                category: 'peg',
+                type: pegType,
+                size: pegSize,
+                position: { x: roundedX, y: roundedY, z: pegData.z || 0 },
+                color: baseColor,
+                rotation: pegData.rotation || 0
+            });
+        }
+    }
+    
+    async loadCharacteristicsFromData(characteristicsData) {
+        if (!this.game || !this.game.scene || !this.game.physicsWorld) {
+            console.error('Cannot load characteristics: game not initialized');
+            return;
+        }
+        
+        const { Characteristic } = await import('../entities/Characteristic.js');
+        
+        for (const charData of characteristicsData) {
+            const roundedX = this.roundToDecimals(charData.x);
+            const roundedY = this.roundToDecimals(charData.y);
+            const shapeType = charData.shape || 'rect';
+            const size = charData.size || (shapeType === 'circle' ? { radius: 0.5 } : { width: 1, height: 1 });
+            const rotation = charData.rotation || 0;
+            const bounceType = charData.bounceType || 'normal';
+            
+            const characteristic = new Characteristic(
+                this.game.scene,
+                this.game.physicsWorld,
+                { x: roundedX, y: roundedY, z: charData.z || 0 },
+                shapeType,
+                size,
+                bounceType
+            );
+            
+            // Apply rotation
+            if (rotation !== 0) {
+                characteristic.setRotation(rotation);
+            }
+            
+            // Add to game and editor
+            if (!this.game.characteristics) {
+                this.game.characteristics = [];
+            }
+            this.game.characteristics.push(characteristic);
+            
+            if (!this.characteristics) {
+                this.characteristics = [];
+            }
+            this.characteristics.push(characteristic);
+            
+            // Store in placed objects
+            this.placedObjects.push({
+                category: 'characteristic',
+                type: shapeType === 'circle' ? 'round' : 'rect', // Use tool type
+                shape: shapeType,
+                position: { x: roundedX, y: roundedY, z: charData.z || 0 },
+                size: size,
+                rotation: rotation,
+                bounceType: bounceType
+            });
         }
     }
     
@@ -4220,6 +4517,9 @@ export class LevelEditor {
         // Use game.pegs if available, otherwise fallback
         const allPegs = (this.game && this.game.pegs) ? this.game.pegs : [];
         const allCharacteristics = (this.game && this.game.characteristics) ? this.game.characteristics : [];
+        
+        // Log for debugging
+        console.log('[saveLevel] Pegs:', allPegs.length, 'Characteristics:', allCharacteristics.length);
         
         const levelData = {
             name: this.currentLevelName,
@@ -4285,6 +4585,58 @@ export class LevelEditor {
                     rotation: rotation,
                     bounceType: charObj ? (charObj.bounceType || 'normal') : (char.bounceType || 'normal')
                 };
+            })
+        };
+        
+        // Convert to JSON and create download
+        const jsonString = JSON.stringify(levelData, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${this.currentLevelName.replace(/\s+/g, '_')}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        console.log('Level saved:', levelData);
+        
+        // Save dev file with shapes, spacers, and characteristics (editor-only tools)
+        const devData = {
+            name: this.currentLevelName,
+            characteristics: allCharacteristics.map(char => {
+                // Find characteristic in placedObjects to get bounceType
+                const charObj = this.placedObjects.find(c => {
+                    if (c.category === 'characteristic' && char.body && c.position) {
+                        const dx = char.body.position.x - c.position.x;
+                        const dy = char.body.position.y - c.position.y;
+                        return Math.sqrt(dx * dx + dy * dy) < 0.05;
+                    }
+                    return false;
+                });
+                
+                // Get rotation from characteristic object or mesh, fallback to 0
+                let rotation = 0;
+                if (char.rotation !== undefined && !isNaN(char.rotation)) {
+                    rotation = char.rotation;
+                } else if (char.mesh && char.mesh.rotation) {
+                    rotation = char.mesh.rotation.z || 0;
+                    if (isNaN(rotation)) {
+                        rotation = 0;
+                    }
+                }
+                
+                return {
+                    x: char.body.position.x,
+                    y: char.body.position.y,
+                    z: char.body.position.z || 0,
+                    shape: char.shape || 'rect',
+                    size: char.size,
+                    rotation: rotation,
+                    bounceType: charObj ? (charObj.bounceType || 'normal') : (char.bounceType || 'normal')
+                };
             }),
             shapes: this.shapes.map(shape => {
                 // Find corresponding placed object to get saved properties
@@ -4310,10 +4662,9 @@ export class LevelEditor {
                     canTakeObjects: (obj && obj.canTakeObjects !== undefined) ? obj.canTakeObjects : (shape.canTakeObjects !== false)
                 };
                 
-                // Add contained pegs if any
+                // Add contained pegs references (by position) for editor restoration
                 if (shape.containedPegs && shape.containedPegs.length > 0) {
                     shapeData.containedPegs = shape.containedPegs.map(peg => {
-                        // Find peg in placedObjects to get color
                         const pegObj = this.placedObjects.find(p => {
                             if (p.category === 'peg' && peg.body && p.position) {
                                 const dx = peg.body.position.x - p.position.x;
@@ -4325,35 +4676,18 @@ export class LevelEditor {
                         return {
                             x: peg.body.position.x,
                             y: peg.body.position.y,
-                            z: peg.body.position.z || 0,
-                            color: pegObj ? (pegObj.color || '#4a90e2') : '#4a90e2',
-                            type: peg.type || 'round',
-                            size: peg.size || 'base',
-                            rotation: peg.mesh.rotation.z || 0
+                            z: peg.body.position.z || 0
                         };
                     });
                 }
                 
-                // Add contained characteristics if any
+                // Add contained characteristics references (by position) for editor restoration
                 if (shape.containedCharacteristics && shape.containedCharacteristics.length > 0) {
                     shapeData.containedCharacteristics = shape.containedCharacteristics.map(char => {
-                        // Find characteristic in placedObjects to get bounceType
-                        const charObj = this.placedObjects.find(c => {
-                            if (c.category === 'characteristic' && char.body && c.position) {
-                                const dx = char.body.position.x - c.position.x;
-                                const dy = char.body.position.y - c.position.y;
-                                return Math.sqrt(dx * dx + dy * dy) < 0.05;
-                            }
-                            return false;
-                        });
                         return {
                             x: char.body.position.x,
                             y: char.body.position.y,
-                            z: char.body.position.z || 0,
-                            shape: char.shape || 'rect',
-                            size: char.size,
-                            rotation: char.rotation || 0,
-                            bounceType: charObj ? (charObj.bounceType || 'normal') : (char.bounceType || 'normal')
+                            z: char.body.position.z || 0
                         };
                     });
                 }
@@ -4368,20 +4702,20 @@ export class LevelEditor {
             }))
         };
         
-        // Convert to JSON and create download
-        const jsonString = JSON.stringify(levelData, null, 2);
-        const blob = new Blob([jsonString], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
+        // Convert dev data to JSON and create download
+        const devJsonString = JSON.stringify(devData, null, 2);
+        const devBlob = new Blob([devJsonString], { type: 'application/json' });
+        const devUrl = URL.createObjectURL(devBlob);
         
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${this.currentLevelName.replace(/\s+/g, '_')}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        const devA = document.createElement('a');
+        devA.href = devUrl;
+        devA.download = `${this.currentLevelName.replace(/\s+/g, '_')}_dev.json`;
+        document.body.appendChild(devA);
+        devA.click();
+        document.body.removeChild(devA);
+        URL.revokeObjectURL(devUrl);
         
-        console.log('Level saved:', levelData);
+        console.log('Dev file saved:', devData);
     }
 }
 

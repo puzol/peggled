@@ -4264,50 +4264,346 @@ export class LevelEditor {
             const text = await file.text();
             const levelData = JSON.parse(text);
             
-            // Set level name
-            this.currentLevelName = levelData.name || 'Untitled Level';
+            // Check if this is a dev file (has shapes array)
+            const isDevFile = levelData.shapes && Array.isArray(levelData.shapes);
             
-            // Ensure game is initialized
-            if (this.game && (!this.game.scene || !this.game.physicsWorld)) {
-                if (this.game.init && typeof this.game.init === 'function') {
-                    await this.game.init();
-                }
+            if (isDevFile) {
+                // Load as dev file - shapes first, then populate with pegs
+                await this.loadDevLevelFromFile(file, levelData);
+            } else {
+                // Load as regular level file
+                await this.loadRegularLevelFromFile(file, levelData);
             }
-            
-            // Clear all existing objects
-            this.clearAllObjects();
-            
-            // Load pegs from level data
-            if (levelData.pegs && Array.isArray(levelData.pegs)) {
-                await this.loadPegsFromData(levelData.pegs);
-            }
-            
-            // Load characteristics from level data
-            if (levelData.characteristics && Array.isArray(levelData.characteristics)) {
-                await this.loadCharacteristicsFromData(levelData.characteristics);
-            }
-            
-            // Try to load dev file if it exists (for shapes and spacers)
-            // The dev file should be in the same directory with _dev.json suffix
-            const fileName = file.name.replace('.json', '');
-            const devFileName = `${fileName}_dev.json`;
-            
-            // Note: In browser, we can't directly read from filesystem
-            // The user would need to manually select the dev file
-            // For now, we'll skip dev file loading and let user know
-            
-            // Mark level as loaded
-            this.levelLoaded = true;
-            this.switchToObjectsButton();
-            this.closeFileOperations();
-            
-            console.log(`Level loaded: ${this.currentLevelName}`, {
-                pegs: levelData.pegs?.length || 0,
-                characteristics: levelData.characteristics?.length || 0
-            });
         } catch (error) {
             console.error('Error loading level:', error);
             alert('Error loading level: ' + error.message);
+        }
+    }
+    
+    async loadDevLevelFromFile(file, devData) {
+        // Set level name
+        this.currentLevelName = devData.name || 'Untitled Level';
+        
+        // Ensure game is initialized
+        if (this.game && (!this.game.scene || !this.game.physicsWorld)) {
+            if (this.game.init && typeof this.game.init === 'function') {
+                await this.game.init();
+            }
+        }
+        
+        // Clear all existing objects
+        this.clearAllObjects();
+        
+        console.log('[LevelEditor] Loading dev level file...', {
+            hasCharacteristics: !!devData.characteristics,
+            characteristicsCount: devData.characteristics?.length || 0,
+            hasShapes: !!devData.shapes,
+            shapesCount: devData.shapes?.length || 0,
+            hasSpacers: !!devData.spacers,
+            spacersCount: devData.spacers?.length || 0,
+            hasPegs: !!devData.pegs,
+            pegsCount: devData.pegs?.length || 0
+        });
+        
+        // 0. Load pegs first if they exist in dev file (they contain full properties)
+        // We'll use these to match with containedPegs positions
+        let pegsData = null;
+        if (devData.pegs && Array.isArray(devData.pegs) && devData.pegs.length > 0) {
+            console.log(`[LevelEditor] Found ${devData.pegs.length} pegs in dev file for matching...`);
+            pegsData = devData.pegs;
+        }
+        
+        // 1. Load characteristics first (they're standalone)
+        if (devData.characteristics && Array.isArray(devData.characteristics) && devData.characteristics.length > 0) {
+            console.log(`[LevelEditor] Loading ${devData.characteristics.length} characteristics...`);
+            await this.loadCharacteristicsFromData(devData.characteristics);
+        }
+        
+        // 2. Load shapes (empty first, then populate with pegs)
+        if (devData.shapes && Array.isArray(devData.shapes) && devData.shapes.length > 0) {
+            console.log(`[LevelEditor] Loading ${devData.shapes.length} shapes...`);
+            await this.loadShapesFromDevData(devData.shapes, pegsData);
+        }
+        
+        // 3. Load spacers
+        if (devData.spacers && Array.isArray(devData.spacers) && devData.spacers.length > 0) {
+            console.log(`[LevelEditor] Loading ${devData.spacers.length} spacers...`);
+            await this.loadSpacersFromData(devData.spacers);
+        }
+        
+        // Mark level as loaded
+        this.levelLoaded = true;
+        this.switchToObjectsButton();
+        this.closeFileOperations();
+        
+        console.log(`Dev level loaded: ${this.currentLevelName}`, {
+            pegs: this.game.pegs?.length || 0,
+            characteristics: this.game.characteristics?.length || 0,
+            shapes: this.shapes?.length || 0,
+            spacers: this.spacers?.length || 0
+        });
+    }
+    
+    async loadRegularLevelFromFile(file, levelData) {
+        // Set level name
+        this.currentLevelName = levelData.name || 'Untitled Level';
+        
+        // Ensure game is initialized
+        if (this.game && (!this.game.scene || !this.game.physicsWorld)) {
+            if (this.game.init && typeof this.game.init === 'function') {
+                await this.game.init();
+            }
+        }
+        
+        // Clear all existing objects
+        this.clearAllObjects();
+        
+        console.log('[LevelEditor] Parsed level data:', {
+            name: levelData.name,
+            hasPegs: !!levelData.pegs,
+            pegsLength: levelData.pegs?.length,
+            hasCharacteristics: !!levelData.characteristics,
+            characteristicsLength: levelData.characteristics?.length,
+            keys: Object.keys(levelData),
+            rawPegs: levelData.pegs
+        });
+        
+        // Debug: Check if pegs exists but is not an array
+        if (levelData.pegs !== undefined && !Array.isArray(levelData.pegs)) {
+            console.error('[LevelEditor] WARNING: levelData.pegs exists but is not an array:', typeof levelData.pegs, levelData.pegs);
+        }
+        
+        // Load pegs from level data
+        if (levelData.pegs && Array.isArray(levelData.pegs) && levelData.pegs.length > 0) {
+            console.log(`[LevelEditor] Found ${levelData.pegs.length} pegs to load`);
+            await this.loadPegsFromData(levelData.pegs);
+        } else {
+            console.warn('[LevelEditor] No pegs found in level data', {
+                pegs: levelData.pegs,
+                type: typeof levelData.pegs,
+                isArray: Array.isArray(levelData.pegs)
+            });
+        }
+        
+        // Load characteristics from level data
+        if (levelData.characteristics && Array.isArray(levelData.characteristics) && levelData.characteristics.length > 0) {
+            console.log(`[LevelEditor] Found ${levelData.characteristics.length} characteristics to load`);
+            await this.loadCharacteristicsFromData(levelData.characteristics);
+        } else {
+            console.log('[LevelEditor] No characteristics found in level data', levelData.characteristics);
+        }
+        
+        // Mark level as loaded
+        this.levelLoaded = true;
+        this.switchToObjectsButton();
+        this.closeFileOperations();
+        
+        console.log(`Level loaded: ${this.currentLevelName}`, {
+            pegs: this.game.pegs?.length || 0,
+            characteristics: this.game.characteristics?.length || 0
+        });
+    }
+    
+    async loadShapesFromDevData(shapesData, pegsData = null) {
+        if (!this.game || !this.game.scene || !this.game.physicsWorld) {
+            console.error('Cannot load shapes: game not initialized');
+            return;
+        }
+        
+        try {
+            const { Shape } = await import('../entities/Shape.js');
+            const { Peg } = await import('../entities/Peg.js');
+            const pegMaterial = this.game.physicsWorld.getPegMaterial();
+            
+            console.log(`[LevelEditor] Loading ${shapesData.length} shapes from dev data...`);
+            
+            for (const shapeData of shapesData) {
+                try {
+                    const roundedX = this.roundToDecimals(shapeData.x);
+                    const roundedY = this.roundToDecimals(shapeData.y);
+                    const shapeType = shapeData.type || 'line';
+                    const size = shapeData.size || (shapeType === 'line' ? { width: 2, height: 0.18 } : { width: 2, height: 2 });
+                    const align = shapeData.align || 'middle';
+                    const justify = shapeData.justify || 'center';
+                    const gap = shapeData.gap !== undefined ? shapeData.gap : 0.2;
+                    const rotation = shapeData.rotation || 0;
+                    const canTakeObjects = shapeData.canTakeObjects !== undefined ? shapeData.canTakeObjects : true;
+                    
+                    // Create shape first
+                    const shape = new Shape(
+                        this.game.scene,
+                        { x: roundedX, y: roundedY, z: shapeData.z || 0 },
+                        shapeType,
+                        size
+                    );
+                    
+                    // Set shape properties (align, justify, gap are direct properties, not methods)
+                    shape.align = align;
+                    shape.justify = justify;
+                    shape.gap = gap;
+                    shape.canTakeObjects = canTakeObjects;
+                    
+                    // Set rotation (this method exists and will rearrange pegs)
+                    if (rotation !== 0) {
+                        shape.setRotation(rotation);
+                    }
+                    
+                    // Add to editor
+                    if (!this.shapes) {
+                        this.shapes = [];
+                    }
+                    this.shapes.push(shape);
+                    
+                    // Now create pegs from containedPegs positions and add them to the shape
+                    if (shapeData.containedPegs && Array.isArray(shapeData.containedPegs)) {
+                        for (const pegRef of shapeData.containedPegs) {
+                            try {
+                                // Get peg properties from pegRef if available, otherwise match by position from pegsData
+                                const pegX = this.roundToDecimals(pegRef.x);
+                                const pegY = this.roundToDecimals(pegRef.y);
+                                const pegZ = pegRef.z || 0;
+                                
+                                // Try to find matching peg data by position
+                                let matchedPegData = null;
+                                if (pegsData && Array.isArray(pegsData)) {
+                                    matchedPegData = pegsData.find(pegData => {
+                                        const dataX = this.roundToDecimals(pegData.x);
+                                        const dataY = this.roundToDecimals(pegData.y);
+                                        const dx = Math.abs(dataX - pegX);
+                                        const dy = Math.abs(dataY - pegY);
+                                        return dx < 0.01 && dy < 0.01; // Match within tolerance
+                                    });
+                                }
+                                
+                                // Use matched peg data or pegRef properties, fallback to defaults
+                                const pegType = (pegRef.type || matchedPegData?.type) || 'round';
+                                const pegSize = (pegRef.size || matchedPegData?.size) || 'base';
+                                let pegColor = pegRef.color || matchedPegData?.color || 0x4a90e2; // Default blue
+                                const pegRotation = (pegRef.rotation !== undefined ? pegRef.rotation : (matchedPegData?.rotation !== undefined ? matchedPegData.rotation : 0));
+                                
+                                // Handle color - can be number or hex string
+                                if (typeof pegColor === 'string') {
+                                    pegColor = parseInt(pegColor.replace('#', ''), 16);
+                                } else if (typeof pegColor !== 'number') {
+                                    pegColor = 0x4a90e2; // Default blue
+                                }
+                                
+                                // Create peg at the position specified in containedPegs
+                                const peg = new Peg(
+                                    this.game.scene,
+                                    this.game.physicsWorld,
+                                    { x: pegX, y: pegY, z: pegZ },
+                                    pegColor,
+                                    pegMaterial,
+                                    pegType,
+                                    pegSize
+                                );
+                                
+                                peg.pointValue = 300;
+                                peg.isOrange = false;
+                                peg.isGreen = false;
+                                peg.isPurple = false;
+                                
+                                // Apply rotation
+                                if (pegRotation !== 0) {
+                                    peg.mesh.rotation.z = pegRotation;
+                                    const euler = new THREE.Euler(0, 0, pegRotation);
+                                    const quaternion = new THREE.Quaternion().setFromEuler(euler);
+                                    peg.body.quaternion.set(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
+                                }
+                                
+                                // Add to game and editor
+                                this.game.pegs.push(peg);
+                                if (!this.pegs) {
+                                    this.pegs = [];
+                                }
+                                this.pegs.push(peg);
+                                
+                                // Store in placed objects
+                                this.placedObjects.push({
+                                    category: 'peg',
+                                    type: pegType,
+                                    size: pegSize,
+                                    position: { x: pegX, y: pegY, z: pegZ },
+                                    color: pegColor,
+                                    rotation: pegRotation
+                                });
+                                
+                                // Add peg to shape - this will reposition it according to shape's layout
+                                shape.addPeg(peg);
+                            } catch (pegError) {
+                                console.error('[LevelEditor] Error creating peg for shape:', pegRef, pegError);
+                            }
+                        }
+                    }
+                    
+                    // Match characteristics to this shape by position
+                    if (shapeData.containedCharacteristics && Array.isArray(shapeData.containedCharacteristics)) {
+                        for (const charRef of shapeData.containedCharacteristics) {
+                            // Find characteristic by position (within tolerance)
+                            const char = this.game.characteristics.find(c => {
+                                if (!c || !c.body) return false;
+                                const dx = Math.abs(c.body.position.x - charRef.x);
+                                const dy = Math.abs(c.body.position.y - charRef.y);
+                                return dx < 0.01 && dy < 0.01;
+                            });
+                            
+                            if (char && shape.addCharacteristic) {
+                                shape.addCharacteristic(char);
+                            }
+                        }
+                    }
+                    
+                    // Store in placed objects
+                    this.placedObjects.push({
+                        category: 'shape',
+                        type: shapeType,
+                        position: { x: roundedX, y: roundedY, z: shapeData.z || 0 },
+                        size: size,
+                        align: align,
+                        justify: justify,
+                        gap: gap,
+                        rotation: rotation,
+                        canTakeObjects: canTakeObjects,
+                        isEditorOnly: true
+                    });
+                } catch (shapeError) {
+                    console.error('[LevelEditor] Error loading shape:', shapeData, shapeError);
+                }
+            }
+            
+            console.log(`[LevelEditor] Successfully loaded ${this.shapes.length} shapes with pegs`);
+        } catch (error) {
+            console.error('[LevelEditor] Error in loadShapesFromDevData:', error);
+        }
+    }
+    
+    async loadDevFileFromFile(file) {
+        if (!file) return;
+        
+        try {
+            const text = await file.text();
+            const devData = JSON.parse(text);
+            
+            console.log('[LevelEditor] Loading dev file:', devData);
+            
+            // Load shapes from dev data
+            if (devData.shapes && Array.isArray(devData.shapes)) {
+                await this.loadShapesFromData(devData.shapes);
+            }
+            
+            // Load spacers from dev data
+            if (devData.spacers && Array.isArray(devData.spacers)) {
+                await this.loadSpacersFromData(devData.spacers);
+            }
+            
+            console.log('[LevelEditor] Dev file loaded:', {
+                shapes: this.shapes?.length || 0,
+                spacers: this.spacers?.length || 0
+            });
+        } catch (error) {
+            console.error('Error loading dev file:', error);
+            alert('Error loading dev file: ' + error.message);
         }
     }
     
@@ -4376,68 +4672,80 @@ export class LevelEditor {
             return;
         }
         
-        const { Peg } = await import('../entities/Peg.js');
-        const pegMaterial = this.game.physicsWorld.getPegMaterial();
-        
-        for (const pegData of pegsData) {
-            // Handle color
-            let baseColor;
-            if (pegData.color) {
-                if (typeof pegData.color === 'string') {
-                    // Convert hex string to number
-                    baseColor = parseInt(pegData.color.replace('#', ''), 16);
-                } else {
-                    baseColor = pegData.color; // Already a number
+        try {
+            const { Peg } = await import('../entities/Peg.js');
+            const pegMaterial = this.game.physicsWorld.getPegMaterial();
+            
+            console.log(`[LevelEditor] Loading ${pegsData.length} pegs...`);
+            
+            for (const pegData of pegsData) {
+                try {
+                    // Handle color
+                    let baseColor;
+                    if (pegData.color) {
+                        if (typeof pegData.color === 'string') {
+                            // Convert hex string to number
+                            baseColor = parseInt(pegData.color.replace('#', ''), 16);
+                        } else {
+                            baseColor = pegData.color; // Already a number
+                        }
+                    } else {
+                        baseColor = 0x4a90e2; // Default blue
+                    }
+                    
+                    const roundedX = this.roundToDecimals(pegData.x);
+                    const roundedY = this.roundToDecimals(pegData.y);
+                    const pegType = pegData.type || 'round';
+                    const pegSize = pegData.size || 'base';
+                    const rotation = pegData.rotation || 0;
+                    
+                    const peg = new Peg(
+                        this.game.scene,
+                        this.game.physicsWorld,
+                        { x: roundedX, y: roundedY, z: pegData.z || 0 },
+                        baseColor,
+                        pegMaterial,
+                        pegType,
+                        pegSize
+                    );
+                    
+                    peg.pointValue = 300;
+                    peg.isOrange = false;
+                    peg.isGreen = false;
+                    peg.isPurple = false;
+                    
+                    // Apply rotation
+                    if (rotation !== 0) {
+                        peg.mesh.rotation.z = rotation;
+                        const euler = new THREE.Euler(0, 0, rotation);
+                        const quaternion = new THREE.Quaternion().setFromEuler(euler);
+                        peg.body.quaternion.set(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
+                    }
+                    
+                    // Add to game and editor
+                    this.game.pegs.push(peg);
+                    if (!this.pegs) {
+                        this.pegs = [];
+                    }
+                    this.pegs.push(peg);
+                    
+                    // Store in placed objects
+                    this.placedObjects.push({
+                        category: 'peg',
+                        type: pegType,
+                        size: pegSize,
+                        position: { x: roundedX, y: roundedY, z: pegData.z || 0 },
+                        color: baseColor,
+                        rotation: pegData.rotation || 0
+                    });
+                } catch (pegError) {
+                    console.error('[LevelEditor] Error loading peg:', pegData, pegError);
                 }
-            } else {
-                baseColor = 0x4a90e2; // Default blue
             }
             
-            const roundedX = this.roundToDecimals(pegData.x);
-            const roundedY = this.roundToDecimals(pegData.y);
-            const pegType = pegData.type || 'round';
-            const pegSize = pegData.size || 'base';
-            const rotation = pegData.rotation || 0;
-            
-            const peg = new Peg(
-                this.game.scene,
-                this.game.physicsWorld,
-                { x: roundedX, y: roundedY, z: pegData.z || 0 },
-                baseColor,
-                pegMaterial,
-                pegType,
-                pegSize
-            );
-            
-            peg.pointValue = 300;
-            peg.isOrange = false;
-            peg.isGreen = false;
-            peg.isPurple = false;
-            
-            // Apply rotation
-            if (rotation !== 0) {
-                peg.mesh.rotation.z = rotation;
-                const euler = new THREE.Euler(0, 0, rotation);
-                const quaternion = new THREE.Quaternion().setFromEuler(euler);
-                peg.body.quaternion.set(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
-            }
-            
-            // Add to game and editor
-            this.game.pegs.push(peg);
-            if (!this.pegs) {
-                this.pegs = [];
-            }
-            this.pegs.push(peg);
-            
-            // Store in placed objects
-            this.placedObjects.push({
-                category: 'peg',
-                type: pegType,
-                size: pegSize,
-                position: { x: roundedX, y: roundedY, z: pegData.z || 0 },
-                color: baseColor,
-                rotation: pegData.rotation || 0
-            });
+            console.log(`[LevelEditor] Successfully loaded ${this.game.pegs.length} pegs`);
+        } catch (error) {
+            console.error('[LevelEditor] Error in loadPegsFromData:', error);
         }
     }
     
@@ -4447,51 +4755,216 @@ export class LevelEditor {
             return;
         }
         
-        const { Characteristic } = await import('../entities/Characteristic.js');
+        try {
+            const { Characteristic } = await import('../entities/Characteristic.js');
+            
+            console.log(`[LevelEditor] Loading ${characteristicsData.length} characteristics...`);
+            
+            for (const charData of characteristicsData) {
+                try {
+                    const roundedX = this.roundToDecimals(charData.x);
+                    const roundedY = this.roundToDecimals(charData.y);
+                    const shapeType = charData.shape || 'rect';
+                    const size = charData.size || (shapeType === 'circle' ? { radius: 0.5 } : { width: 1, height: 1 });
+                    const rotation = charData.rotation || 0;
+                    const bounceType = charData.bounceType || 'normal';
+                    
+                    const characteristic = new Characteristic(
+                        this.game.scene,
+                        this.game.physicsWorld,
+                        { x: roundedX, y: roundedY, z: charData.z || 0 },
+                        shapeType,
+                        size,
+                        bounceType
+                    );
+                    
+                    // Apply rotation
+                    if (rotation !== 0) {
+                        characteristic.setRotation(rotation);
+                    }
+                    
+                    // Add to game and editor
+                    if (!this.game.characteristics) {
+                        this.game.characteristics = [];
+                    }
+                    this.game.characteristics.push(characteristic);
+                    
+                    if (!this.characteristics) {
+                        this.characteristics = [];
+                    }
+                    this.characteristics.push(characteristic);
+                    
+                    // Store in placed objects
+                    this.placedObjects.push({
+                        category: 'characteristic',
+                        type: shapeType === 'circle' ? 'round' : 'rect', // Use tool type
+                        shape: shapeType,
+                        position: { x: roundedX, y: roundedY, z: charData.z || 0 },
+                        size: size,
+                        rotation: rotation,
+                        bounceType: bounceType
+                    });
+                } catch (charError) {
+                    console.error('[LevelEditor] Error loading characteristic:', charData, charError);
+                }
+            }
+            
+            console.log(`[LevelEditor] Successfully loaded ${this.game.characteristics.length} characteristics`);
+        } catch (error) {
+            console.error('[LevelEditor] Error in loadCharacteristicsFromData:', error);
+        }
+    }
+    
+    async loadShapesFromData(shapesData) {
+        if (!this.game || !this.game.scene) {
+            console.error('Cannot load shapes: game not initialized');
+            return;
+        }
         
-        for (const charData of characteristicsData) {
-            const roundedX = this.roundToDecimals(charData.x);
-            const roundedY = this.roundToDecimals(charData.y);
-            const shapeType = charData.shape || 'rect';
-            const size = charData.size || (shapeType === 'circle' ? { radius: 0.5 } : { width: 1, height: 1 });
-            const rotation = charData.rotation || 0;
-            const bounceType = charData.bounceType || 'normal';
+        try {
+            const { Shape } = await import('../entities/Shape.js');
             
-            const characteristic = new Characteristic(
-                this.game.scene,
-                this.game.physicsWorld,
-                { x: roundedX, y: roundedY, z: charData.z || 0 },
-                shapeType,
-                size,
-                bounceType
-            );
+            console.log(`[LevelEditor] Loading ${shapesData.length} shapes...`);
             
-            // Apply rotation
-            if (rotation !== 0) {
-                characteristic.setRotation(rotation);
+            for (const shapeData of shapesData) {
+                try {
+                    const roundedX = this.roundToDecimals(shapeData.x);
+                    const roundedY = this.roundToDecimals(shapeData.y);
+                    const shapeType = shapeData.type || 'line';
+                    const size = shapeData.size || (shapeType === 'line' ? { width: 2, height: 0.18 } : { width: 2, height: 2 });
+                    const align = shapeData.align || 'middle';
+                    const justify = shapeData.justify || 'center';
+                    const gap = shapeData.gap !== undefined ? shapeData.gap : 0.2;
+                    const rotation = shapeData.rotation || 0;
+                    const canTakeObjects = shapeData.canTakeObjects !== undefined ? shapeData.canTakeObjects : true;
+                    
+                    const shape = new Shape(
+                        this.game.scene,
+                        { x: roundedX, y: roundedY, z: shapeData.z || 0 },
+                        shapeType,
+                        size
+                    );
+                    
+                    // Set shape properties (align, justify, gap are direct properties, not methods)
+                    shape.align = align;
+                    shape.justify = justify;
+                    shape.gap = gap;
+                    shape.canTakeObjects = canTakeObjects;
+                    
+                    // Set rotation (this method exists and will rearrange pegs)
+                    if (rotation !== 0) {
+                        shape.setRotation(rotation);
+                    }
+                    
+                    // Add to editor
+                    if (!this.shapes) {
+                        this.shapes = [];
+                    }
+                    this.shapes.push(shape);
+                    
+                    // Match pegs to this shape by position
+                    if (shapeData.containedPegs && Array.isArray(shapeData.containedPegs)) {
+                        for (const pegRef of shapeData.containedPegs) {
+                            // Find peg by position (within tolerance)
+                            const peg = this.game.pegs.find(p => {
+                                if (!p || !p.body) return false;
+                                const dx = Math.abs(p.body.position.x - pegRef.x);
+                                const dy = Math.abs(p.body.position.y - pegRef.y);
+                                return dx < 0.01 && dy < 0.01;
+                            });
+                            
+                            if (peg) {
+                                shape.addPeg(peg);
+                            }
+                        }
+                    }
+                    
+                    // Match characteristics to this shape by position
+                    if (shapeData.containedCharacteristics && Array.isArray(shapeData.containedCharacteristics)) {
+                        for (const charRef of shapeData.containedCharacteristics) {
+                            // Find characteristic by position (within tolerance)
+                            const char = this.game.characteristics.find(c => {
+                                if (!c || !c.body) return false;
+                                const dx = Math.abs(c.body.position.x - charRef.x);
+                                const dy = Math.abs(c.body.position.y - charRef.y);
+                                return dx < 0.01 && dy < 0.01;
+                            });
+                            
+                            if (char && shape.addCharacteristic) {
+                                shape.addCharacteristic(char);
+                            }
+                        }
+                    }
+                    
+                    // Store in placed objects
+                    this.placedObjects.push({
+                        category: 'shape',
+                        type: shapeType,
+                        position: { x: roundedX, y: roundedY, z: shapeData.z || 0 },
+                        size: size,
+                        align: align,
+                        justify: justify,
+                        gap: gap,
+                        rotation: rotation,
+                        canTakeObjects: canTakeObjects,
+                        isEditorOnly: true
+                    });
+                } catch (shapeError) {
+                    console.error('[LevelEditor] Error loading shape:', shapeData, shapeError);
+                }
             }
             
-            // Add to game and editor
-            if (!this.game.characteristics) {
-                this.game.characteristics = [];
-            }
-            this.game.characteristics.push(characteristic);
+            console.log(`[LevelEditor] Successfully loaded ${this.shapes.length} shapes`);
+        } catch (error) {
+            console.error('[LevelEditor] Error in loadShapesFromData:', error);
+        }
+    }
+    
+    async loadSpacersFromData(spacersData) {
+        if (!this.game || !this.game.scene) {
+            console.error('Cannot load spacers: game not initialized');
+            return;
+        }
+        
+        try {
+            const { Spacer } = await import('../entities/Spacer.js');
             
-            if (!this.characteristics) {
-                this.characteristics = [];
-            }
-            this.characteristics.push(characteristic);
+            console.log(`[LevelEditor] Loading ${spacersData.length} spacers...`);
             
-            // Store in placed objects
-            this.placedObjects.push({
-                category: 'characteristic',
-                type: shapeType === 'circle' ? 'round' : 'rect', // Use tool type
-                shape: shapeType,
-                position: { x: roundedX, y: roundedY, z: charData.z || 0 },
-                size: size,
-                rotation: rotation,
-                bounceType: bounceType
-            });
+            for (const spacerData of spacersData) {
+                try {
+                    const roundedX = this.roundToDecimals(spacerData.x);
+                    const roundedY = this.roundToDecimals(spacerData.y);
+                    const size = spacerData.size || { width: 1, height: 1 };
+                    
+                    const spacer = new Spacer(
+                        this.game.scene,
+                        { x: roundedX, y: roundedY, z: spacerData.z || 0 },
+                        size
+                    );
+                    
+                    // Add to editor
+                    if (!this.spacers) {
+                        this.spacers = [];
+                    }
+                    this.spacers.push(spacer);
+                    
+                    // Store in placed objects
+                    this.placedObjects.push({
+                        category: 'spacer',
+                        type: 'spacer',
+                        position: { x: roundedX, y: roundedY, z: spacerData.z || 0 },
+                        size: size,
+                        isEditorOnly: true
+                    });
+                } catch (spacerError) {
+                    console.error('[LevelEditor] Error loading spacer:', spacerData, spacerError);
+                }
+            }
+            
+            console.log(`[LevelEditor] Successfully loaded ${this.spacers.length} spacers`);
+        } catch (error) {
+            console.error('[LevelEditor] Error in loadSpacersFromData:', error);
         }
     }
     
@@ -4662,9 +5135,10 @@ export class LevelEditor {
                     canTakeObjects: (obj && obj.canTakeObjects !== undefined) ? obj.canTakeObjects : (shape.canTakeObjects !== false)
                 };
                 
-                // Add contained pegs references (by position) for editor restoration
+                // Add contained pegs with full properties for editor restoration
                 if (shape.containedPegs && shape.containedPegs.length > 0) {
                     shapeData.containedPegs = shape.containedPegs.map(peg => {
+                        // Find peg in placedObjects to get full properties
                         const pegObj = this.placedObjects.find(p => {
                             if (p.category === 'peg' && peg.body && p.position) {
                                 const dx = peg.body.position.x - p.position.x;
@@ -4673,10 +5147,22 @@ export class LevelEditor {
                             }
                             return false;
                         });
+                        
+                        // Get rotation from peg
+                        let rotation = 0;
+                        if (peg.mesh && peg.mesh.rotation && peg.mesh.rotation.z !== undefined) {
+                            rotation = peg.mesh.rotation.z;
+                            if (isNaN(rotation)) rotation = 0;
+                        }
+                        
                         return {
                             x: peg.body.position.x,
                             y: peg.body.position.y,
-                            z: peg.body.position.z || 0
+                            z: peg.body.position.z || 0,
+                            type: peg.type || (pegObj ? pegObj.type : 'round'),
+                            size: peg.size || (pegObj ? pegObj.size : 'base'),
+                            color: pegObj ? (pegObj.color || 0x4a90e2) : 0x4a90e2,
+                            rotation: rotation
                         };
                     });
                 }

@@ -212,16 +212,8 @@ export class LevelEditor {
     }
     
     handlePlacementClick(event) {
-        console.log('Editor click handler:', {
-            isActive: this.isActive,
-            testingMode: this.testingMode,
-            selectedTool: this.selectedTool,
-            target: event.target
-        });
-        
         // Only handle if editor is active, tool is selected, and not in testing mode
         if (!this.isActive || this.testingMode || !this.selectedTool) {
-            console.log('Click handler early return');
             return;
         }
         
@@ -234,7 +226,6 @@ export class LevelEditor {
             (fileOperationsModal && fileOperationsModal.contains(event.target)) ||
             (shapeSettingsOverlay && shapeSettingsOverlay.contains(event.target)) ||
             (characteristicSettingsOverlay && characteristicSettingsOverlay.contains(event.target))) {
-            console.log('Click inside modal, ignoring');
             return;
         }
         
@@ -242,7 +233,6 @@ export class LevelEditor {
         event.stopPropagation();
         event.preventDefault();
         
-        console.log('Placing/erasing object at:', this.mouseWorldPos);
         
         // Check if eraser tool is selected
         if (this.selectedTool && this.selectedTool.category === 'eraser') {
@@ -264,7 +254,7 @@ export class LevelEditor {
             // Rotate tool - select peg at click position
             this.selectPegForRotation(this.mouseWorldPos.x, this.mouseWorldPos.y);
         } else if (this.selectedTool && this.selectedTool.category === 'settings') {
-            // Settings tool - open settings for shape or characteristic
+            // Settings tool - open settings for shape, characteristic, or peg
             const shape = this.findShapeAtPosition(this.mouseWorldPos.x, this.mouseWorldPos.y);
             if (shape) {
                 this.openShapeSettings(shape);
@@ -272,6 +262,11 @@ export class LevelEditor {
                 const characteristic = this.findCharacteristicAtPosition(this.mouseWorldPos.x, this.mouseWorldPos.y);
                 if (characteristic) {
                     this.openCharacteristicSettings(characteristic);
+                } else {
+                    const peg = this.findPegAtPosition(this.mouseWorldPos.x, this.mouseWorldPos.y);
+                    if (peg) {
+                        this.openPegSettings(peg);
+                    }
                 }
             }
         } else if (this.selectedTool && this.selectedTool.category === 'resize') {
@@ -532,17 +527,8 @@ export class LevelEditor {
             const isSpacer = wasMoving && this.spacers && this.spacers.includes(wasMoving);
             const isShape = wasMoving && this.shapes && this.shapes.includes(wasMoving);
             
-            console.log('[MOVE END] Object being moved:', {
-                wasMoving: !!wasMoving,
-                isSpacer,
-                isShape,
-                finalX,
-                shouldSnapToCenter
-            });
-            
             // Snap to center if near center
             if (shouldSnapToCenter && wasMoving) {
-                console.log('[MOVE END] Snapping to center');
                 if (isSpacer) {
                     // Spacer
                     const oldY = wasMoving.position.y;
@@ -611,10 +597,7 @@ export class LevelEditor {
             
             // If moving a spacer, snap it to inside edge if it crosses level border
             if (isSpacer) {
-                console.log('[MOVE END] Calling snapSpacerToBounds');
                 this.snapSpacerToBounds(wasMoving);
-            } else {
-                console.log('[MOVE END] Not calling snapSpacerToBounds - not a spacer');
             }
             
             // Clear selection indicator when moving stops
@@ -878,7 +861,6 @@ export class LevelEditor {
         this.previewMesh.renderOrder = 999; // Render on top
         
         this.game.scene.add(this.previewMesh);
-        console.log('Preview mesh created:', this.previewMesh, 'Type:', tool.type, 'Size:', tool.size);
     }
     
     placeObject(worldX, worldY) {
@@ -1138,7 +1120,6 @@ export class LevelEditor {
         });
         
         if (pegsToRemove.length > 0) {
-            console.log(`Erased ${pegsToRemove.length} peg(s) at (${worldX.toFixed(2)}, ${worldY.toFixed(2)})`);
         }
     }
     
@@ -1197,11 +1178,11 @@ export class LevelEditor {
                     currentShape.containedPegs.splice(currentIndex, 1);
                 }
                 // Reinsert at new position
-                currentShape.addPeg(peg, insertionIndex);
+                this.addPegToShapeWithMirror(currentShape, peg, insertionIndex);
                 return; // addPeg will call rearrangePegs which will position the peg
             } else {
                 // Moved outside or to different shape - remove from current shape
-                currentShape.removePeg(peg);
+                this.removePegFromShapeWithMirror(currentShape, peg);
             }
         }
         
@@ -1209,7 +1190,7 @@ export class LevelEditor {
         if (containingShape && containingShape !== currentShape && containingShape.canTakeObjects !== false) {
             // Moved into a shape - find insertion index and add to it (only if shape can take objects)
             const insertionIndex = containingShape.findInsertionIndex(roundedX, roundedY);
-            containingShape.addPeg(peg, insertionIndex);
+            this.addPegToShapeWithMirror(containingShape, peg, insertionIndex);
             return; // addPeg will call rearrangePegs which will position the peg
         }
         
@@ -1238,6 +1219,13 @@ export class LevelEditor {
         if (placedObj) {
             placedObj.position.x = roundedX;
             placedObj.position.y = roundedY;
+        }
+        
+        // Sync to mirror if exists
+        if (peg.mirrorPair && !peg._syncing) {
+            peg._syncing = true;
+            this.syncToMirror(peg);
+            peg._syncing = false;
         }
     }
     
@@ -1274,7 +1262,6 @@ export class LevelEditor {
                 }
             }
         }
-        console.log('Selected for rotation:', peg ? 'Peg' : (this.selectedShape ? 'Shape' : (this.selectedCharacteristic ? 'Characteristic' : 'None')));
     }
     
     selectObjectForRotation(worldX, worldY) {
@@ -1330,6 +1317,13 @@ export class LevelEditor {
             const newRadius = Math.max(0.1, distance);
             
             objectToResize.updateSize({ radius: newRadius });
+            
+            // Sync size to mirror if exists
+            if (objectToResize.mirrorPair && !objectToResize._syncing) {
+                objectToResize._syncing = true;
+                this.syncToMirror(objectToResize, true); // Skip position, only sync properties
+                objectToResize._syncing = false;
+            }
             
             // Update in placed objects
             const placedObj = this.placedObjects.find(obj => {
@@ -1447,9 +1441,16 @@ export class LevelEditor {
         }
         
         const newSize = { width: newWidth, height: newHeight };
-        objectToResize.updateSize(newSize);
-        
-        // Update in placed objects
+            objectToResize.updateSize(newSize);
+            
+            // Sync size to mirror if exists
+            if (objectToResize.mirrorPair && !objectToResize._syncing) {
+                objectToResize._syncing = true;
+                this.syncToMirror(objectToResize, true); // Skip position, only sync properties
+                objectToResize._syncing = false;
+            }
+            
+            // Update in placed objects
         let category;
         if (objectToResize === this.selectedSpacer) {
             category = 'spacer';
@@ -1728,6 +1729,19 @@ export class LevelEditor {
         // Update shape rotation (this will automatically rearrange pegs and characteristics)
         shape.setRotation(newZRotation);
         
+        // Update in placed objects
+        const placedObj = this.findPlacedObject(shape);
+        if (placedObj) {
+            placedObj.rotation = newZRotation;
+        }
+        
+        // Sync to mirror if exists
+        if (shape.mirrorPair && !shape._syncing) {
+            shape._syncing = true;
+            this.syncToMirror(shape, true); // Skip position, only sync properties
+            shape._syncing = false;
+        }
+        
         // Update indicator rotation if shape is selected
         if (this.selectionIndicator && this.selectedShape === shape) {
             this.selectionIndicator.rotation.z = newZRotation;
@@ -1747,29 +1761,22 @@ export class LevelEditor {
         // Update characteristic rotation
         characteristic.setRotation(newZRotation);
         
+        // Update in placed objects
+        const placedObj = this.findPlacedObject(characteristic);
+        if (placedObj) {
+            placedObj.rotation = newZRotation;
+        }
+        
+        // Sync to mirror if exists
+        if (characteristic.mirrorPair && !characteristic._syncing) {
+            characteristic._syncing = true;
+            this.syncToMirror(characteristic, true); // Skip position, only sync properties
+            characteristic._syncing = false;
+        }
+        
         // Update indicator rotation if characteristic is selected
         if (this.selectionIndicator && this.selectedCharacteristic === characteristic) {
             this.selectionIndicator.rotation.z = newZRotation;
-        }
-        
-        // Update in placed objects
-        const placedObj = this.placedObjects.find(obj => {
-            if (obj.category === 'characteristic' && obj.position && characteristic.position) {
-                const objX = obj.position.x;
-                const objY = obj.position.y;
-                const charX = characteristic.position.x;
-                const charY = characteristic.position.y;
-                const distance = Math.sqrt(
-                    Math.pow(objX - charX, 2) + 
-                    Math.pow(objY - charY, 2)
-                );
-                return distance < 0.05;
-            }
-            return false;
-        });
-        
-        if (placedObj) {
-            placedObj.rotation = newZRotation;
         }
     }
     
@@ -1977,11 +1984,9 @@ export class LevelEditor {
             
             // Check if position overlaps with any spacer
             if (this.checkPegOverlapsSpacer(roundedX, roundedY, tool.type || 'round', tool.size || 'base')) {
-                console.log('Cannot place peg: overlaps with spacer');
                 return; // Don't place peg if it overlaps a spacer
             }
             
-            console.log('Creating peg at:', { x: roundedX, y: roundedY, z: 0 });
             
             // Get type and size from tool
             const pegType = tool.type || 'round';
@@ -2003,13 +2008,12 @@ export class LevelEditor {
             peg.isPurple = false;
             
             this.game.pegs.push(peg);
-            console.log('Peg created, total pegs:', this.game.pegs.length, 'Peg mesh:', peg.mesh);
             
             // Check if peg is being placed inside a shape
             try {
                 const containingShape = this.findShapeAtPosition(roundedX, roundedY);
                 if (containingShape && containingShape.addPeg && containingShape.canTakeObjects !== false) {
-                    containingShape.addPeg(peg);
+                    this.addPegToShapeWithMirror(containingShape, peg);
                 }
             } catch (error) {
                 console.error('Error adding peg to shape:', error);
@@ -2067,7 +2071,6 @@ export class LevelEditor {
             this.selectedTool = null;
             this.hidePreview();
             
-            console.log('Spacer placed at:', { x: roundedX, y: roundedY }, 'Size:', defaultSize);
         });
     }
     
@@ -2111,7 +2114,6 @@ export class LevelEditor {
                 }
                 
                 defaultSize = { radius: radius };
-                console.log('[LevelEditor] Placing circular characteristic with size:', defaultSize, 'sizeName:', sizeName, 'radius:', radius);
             } else {
                 defaultSize = { width: 1, height: 1 };
                 // Ensure width and height are valid numbers
@@ -2123,7 +2125,6 @@ export class LevelEditor {
                 }
             }
             
-            console.log('[LevelEditor] Creating characteristic:', { shapeType, defaultSize, position: { x: roundedX, y: roundedY, z: 0 } });
             
             const characteristic = new Characteristic(
                 this.game.scene,
@@ -2150,7 +2151,7 @@ export class LevelEditor {
             try {
                 const containingShape = this.findShapeAtPosition(roundedX, roundedY);
                 if (containingShape && containingShape.addCharacteristic && containingShape.canTakeObjects !== false) {
-                    containingShape.addCharacteristic(characteristic);
+                    this.addCharacteristicToShapeWithMirror(containingShape, characteristic);
                 }
             } catch (error) {
                 console.error('Error adding characteristic to shape:', error);
@@ -2167,7 +2168,6 @@ export class LevelEditor {
                 bounceType: 'normal' // Default bounce type
             });
             
-            console.log('Characteristic placed at:', { x: roundedX, y: roundedY }, 'Type:', toolType, 'Shape:', shapeType, 'Size:', defaultSize);
         });
     }
     
@@ -2212,7 +2212,6 @@ export class LevelEditor {
                     defaultSize = { width: 2, height: 2 };
                 }
                 
-                console.log('[LevelEditor] Placing circle shape with size:', defaultSize, 'tool.size:', tool.size);
             }
             
             const shape = new Shape(
@@ -2238,7 +2237,6 @@ export class LevelEditor {
             this.selectedTool = null;
             this.hidePreview();
             
-            console.log('Shape placed at:', { x: roundedX, y: roundedY }, 'Type:', shapeType, 'Size:', defaultSize);
         });
     }
     
@@ -2276,6 +2274,13 @@ export class LevelEditor {
             placedObj.position.x = roundedX;
             placedObj.position.y = roundedY;
         }
+        
+        // Sync to mirror if exists
+        if (spacer.mirrorPair && !spacer._syncing) {
+            spacer._syncing = true;
+            this.syncToMirror(spacer);
+            spacer._syncing = false;
+        }
     }
     
     /**
@@ -2284,7 +2289,6 @@ export class LevelEditor {
      */
     snapSpacerToBounds(spacer) {
         if (!spacer) {
-            console.log('[SNAP] No spacer provided');
             return;
         }
         
@@ -2307,76 +2311,23 @@ export class LevelEditor {
         const spacerBottom = currentY - halfHeight;
         const spacerTop = currentY + halfHeight;
         
-        console.log('[SNAP] Initial state:', {
-            currentX,
-            currentY,
-            halfWidth,
-            halfHeight,
-            spacerEdges: {
-                left: spacerLeft,
-                right: spacerRight,
-                bottom: spacerBottom,
-                top: spacerTop
-            },
-            levelBounds,
-            isOutOfBounds: {
-                left: spacerLeft < levelBounds.left,
-                right: spacerRight > levelBounds.right,
-                bottom: spacerBottom < levelBounds.bottom,
-                top: spacerTop > levelBounds.top
-            }
-        });
-        
         // Single check and adjustment
         if (spacerLeft < levelBounds.left) {
-            console.log('[SNAP] Crossing left edge:', {
-                spacerLeft,
-                levelBoundsLeft: levelBounds.left,
-                difference: spacerLeft - levelBounds.left,
-                newX: levelBounds.left + halfWidth
-            });
             currentX = levelBounds.left + halfWidth;
         } else if (spacerRight > levelBounds.right) {
-            console.log('[SNAP] Crossing right edge:', {
-                spacerRight,
-                levelBoundsRight: levelBounds.right,
-                difference: spacerRight - levelBounds.right,
-                newX: levelBounds.right - halfWidth
-            });
             currentX = levelBounds.right - halfWidth;
         }
         
         if (spacerBottom < levelBounds.bottom) {
-            console.log('[SNAP] Crossing bottom edge:', {
-                spacerBottom,
-                levelBoundsBottom: levelBounds.bottom,
-                difference: spacerBottom - levelBounds.bottom,
-                newY: levelBounds.bottom + halfHeight
-            });
             currentY = levelBounds.bottom + halfHeight;
         } else if (spacerTop > levelBounds.top) {
-            console.log('[SNAP] Crossing top edge:', {
-                spacerTop,
-                levelBoundsTop: levelBounds.top,
-                difference: spacerTop - levelBounds.top,
-                newY: levelBounds.top - halfHeight
-            });
             currentY = levelBounds.top - halfHeight;
         }
-        
-        console.log('[SNAP] After adjustment:', {
-            currentX,
-            currentY,
-            originalX: spacer.position.x,
-            originalY: spacer.position.y,
-            changed: currentX !== spacer.position.x || currentY !== spacer.position.y
-        });
         
         // Update position if it changed
         if (currentX !== spacer.position.x || currentY !== spacer.position.y) {
             const roundedX = this.roundToDecimals(currentX);
             const roundedY = this.roundToDecimals(currentY);
-            console.log('[SNAP] Updating position to:', { roundedX, roundedY });
             spacer.moveTo({ x: roundedX, y: roundedY, z: 0 });
             
             // Update in placed objects
@@ -2398,12 +2349,7 @@ export class LevelEditor {
             if (placedObj) {
                 placedObj.position.x = roundedX;
                 placedObj.position.y = roundedY;
-                console.log('[SNAP] Updated placed object');
-            } else {
-                console.log('[SNAP] No placed object found to update');
             }
-        } else {
-            console.log('[SNAP] No adjustment needed');
         }
     }
     
@@ -2420,6 +2366,20 @@ export class LevelEditor {
         
         // Update shape position
         shape.moveTo({ x: roundedX, y: roundedY, z: 0 });
+        
+        // Update in placed objects
+        const placedObj = this.findPlacedObject(shape);
+        if (placedObj) {
+            placedObj.position.x = roundedX;
+            placedObj.position.y = roundedY;
+        }
+        
+        // Sync to mirror if exists
+        if (shape.mirrorPair && !shape._syncing) {
+            shape._syncing = true;
+            this.syncToMirror(shape);
+            shape._syncing = false;
+        }
     }
     
     moveCharacteristic(characteristic, newX, newY) {
@@ -2443,12 +2403,12 @@ export class LevelEditor {
             // Moved into a different shape - add to it (only if shape can take objects)
             // For now, just add at the end (could implement findInsertionIndex for characteristics later)
             if (currentShape) {
-                currentShape.removeCharacteristic(characteristic);
+                this.removeCharacteristicFromShapeWithMirror(currentShape, characteristic);
             }
-            containingShape.addCharacteristic(characteristic);
+            this.addCharacteristicToShapeWithMirror(containingShape, characteristic);
         } else if (!containingShape && currentShape) {
             // Moved outside of shape - remove from current shape
-            currentShape.removeCharacteristic(characteristic);
+            this.removeCharacteristicFromShapeWithMirror(currentShape, characteristic);
         } else if (containingShape && containingShape === currentShape) {
             // Still in same shape - let shape rearrange it
             // Don't call moveTo directly, let the shape handle positioning
@@ -2477,6 +2437,13 @@ export class LevelEditor {
         if (placedObj) {
             placedObj.position.x = roundedX;
             placedObj.position.y = roundedY;
+        }
+        
+        // Sync to mirror if exists
+        if (characteristic.mirrorPair && !characteristic._syncing) {
+            characteristic._syncing = true;
+            this.syncToMirror(characteristic);
+            characteristic._syncing = false;
         }
     }
     
@@ -3284,6 +3251,13 @@ export class LevelEditor {
         this.createCharacteristicSettingsModal();
     }
     
+    openPegSettings(peg) {
+        if (!peg) return;
+        
+        this.pegForSettings = peg;
+        this.createPegSettingsModal();
+    }
+    
     createSettingsModal() {
         // Remove existing modal if any
         const existingModal = document.getElementById('shape-settings-modal');
@@ -3414,6 +3388,13 @@ export class LevelEditor {
             this.shapeForSettings.align = e.target.value;
             this.shapeForSettings.rearrangePegs();
             this.shapeForSettings.rearrangeCharacteristics();
+            
+            // Sync to mirror if exists
+            if (this.shapeForSettings.mirrorPair && !this.shapeForSettings._syncing) {
+                this.shapeForSettings._syncing = true;
+                this.syncToMirror(this.shapeForSettings, true); // Skip position, only sync properties
+                this.shapeForSettings._syncing = false;
+            }
         });
         
         alignGroup.appendChild(alignLabel);
@@ -3489,6 +3470,19 @@ export class LevelEditor {
             this.shapeForSettings.justify = e.target.value;
             this.shapeForSettings.rearrangePegs();
             this.shapeForSettings.rearrangeCharacteristics();
+            
+            // Sync to mirror if exists (mirror will get mirrored justify)
+            if (this.shapeForSettings.mirrorPair && !this.shapeForSettings._syncing) {
+                this.shapeForSettings._syncing = true;
+                this.syncToMirror(this.shapeForSettings, true); // Skip position, only sync properties
+                if (this.shapeForSettings.mirrorPair.rearrangePegs) {
+                    this.shapeForSettings.mirrorPair.rearrangePegs();
+                }
+                if (this.shapeForSettings.mirrorPair.rearrangeCharacteristics) {
+                    this.shapeForSettings.mirrorPair.rearrangeCharacteristics();
+                }
+                this.shapeForSettings._syncing = false;
+            }
         });
         
         justifyGroup.appendChild(justifyLabel);
@@ -3521,6 +3515,19 @@ export class LevelEditor {
                 this.shapeForSettings.gap = value;
                 this.shapeForSettings.rearrangePegs();
                 this.shapeForSettings.rearrangeCharacteristics();
+                
+                // Sync to mirror if exists
+                if (this.shapeForSettings.mirrorPair && !this.shapeForSettings._syncing) {
+                    this.shapeForSettings._syncing = true;
+                    this.syncToMirror(this.shapeForSettings, true); // Skip position, only sync properties
+                    if (this.shapeForSettings.mirrorPair.rearrangePegs) {
+                        this.shapeForSettings.mirrorPair.rearrangePegs();
+                    }
+                    if (this.shapeForSettings.mirrorPair.rearrangeCharacteristics) {
+                        this.shapeForSettings.mirrorPair.rearrangeCharacteristics();
+                    }
+                    this.shapeForSettings._syncing = false;
+                }
             }
         });
         
@@ -3547,22 +3554,16 @@ export class LevelEditor {
             this.shapeForSettings.canTakeObjects = e.target.checked;
             
             // Update placed objects entry to sync with shape object
-            const placedObj = this.placedObjects.find(obj => {
-                if (obj.category === 'shape' && obj.position && this.shapeForSettings.position) {
-                    const objX = obj.position.x;
-                    const objY = obj.position.y;
-                    const shapeX = this.shapeForSettings.position.x;
-                    const shapeY = this.shapeForSettings.position.y;
-                    const distance = Math.sqrt(
-                        Math.pow(objX - shapeX, 2) + 
-                        Math.pow(objY - shapeY, 2)
-                    );
-                    return distance < 0.05;
-                }
-                return false;
-            });
+            const placedObj = this.findPlacedObject(this.shapeForSettings);
             if (placedObj) {
                 placedObj.canTakeObjects = e.target.checked;
+            }
+            
+            // Sync to mirror if exists
+            if (this.shapeForSettings.mirrorPair && !this.shapeForSettings._syncing) {
+                this.shapeForSettings._syncing = true;
+                this.syncToMirror(this.shapeForSettings, true); // Skip position, only sync properties
+                this.shapeForSettings._syncing = false;
             }
             
             // Don't remove existing objects when toggling - they should stay where they are
@@ -3576,10 +3577,86 @@ export class LevelEditor {
         
         canTakeObjectsGroup.appendChild(canTakeObjectsContainer);
         
+        // Mirrored checkbox
+        const mirroredGroup = document.createElement('div');
+        mirroredGroup.style.cssText = `display: flex; flex-direction: column; gap: 10px;`;
+        const mirroredLabel = document.createElement('label');
+        mirroredLabel.textContent = 'Mirrored';
+        mirroredLabel.style.cssText = `color: white; font-size: 16px; font-weight: bold;`;
+        
+        const mirroredCheckbox = document.createElement('input');
+        mirroredCheckbox.type = 'checkbox';
+        mirroredCheckbox.id = 'shape-mirrored';
+        // Check if this object has a mirror pair (either direction)
+        const hasMirrorPair = !!(this.shapeForSettings.mirrorPair || 
+                                 (this.shapeForSettings.mirrored && 
+                                  this.shapes.find(s => s.mirrorPair === this.shapeForSettings)));
+        mirroredCheckbox.checked = hasMirrorPair;
+        
+        console.log('Mirrored checkbox initialized:', {
+            hasMirrorPair,
+            shapeMirrorPair: !!this.shapeForSettings.mirrorPair,
+            shapeMirrored: this.shapeForSettings.mirrored,
+            shapePosition: this.shapeForSettings.position
+        });
+        mirroredCheckbox.style.cssText = `
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        `;
+        mirroredCheckbox.addEventListener('change', async (e) => {
+            const isMirrored = e.target.checked;
+            
+            if (isMirrored) {
+                // If already has a mirror pair, do nothing
+                if (this.shapeForSettings.mirrorPair) {
+                    return;
+                }
+                
+                // Use this.shapeForSettings directly as the original
+                // (it's already the shape object we want to mirror)
+                const original = this.shapeForSettings;
+                
+                // Create mirror copy
+                const mirrorCopy = await this.createMirrorCopy(original);
+                if (mirrorCopy) {
+                    // The relationship should already be set by createMirrorCopy
+                    // But verify it's set correctly
+                    if (this.shapeForSettings.mirrorPair !== mirrorCopy) {
+                        this.shapeForSettings.mirrorPair = mirrorCopy;
+                    }
+                    // Update checkbox state to reflect the new mirror relationship
+                    mirroredCheckbox.checked = true;
+                } else {
+                    console.error('Failed to create mirror copy for shape', {
+                        original,
+                        isInShapes: this.shapes?.includes(original),
+                        shapesCount: this.shapes?.length
+                    });
+                    // Uncheck if creation failed
+                    mirroredCheckbox.checked = false;
+                }
+            } else {
+                // Remove mirror relationship from both objects
+                this.removeMirrorRelationship(this.shapeForSettings);
+                if (this.shapeForSettings.mirrorPair) {
+                    this.removeMirrorRelationship(this.shapeForSettings.mirrorPair);
+                }
+            }
+        });
+        
+        const mirroredContainer = document.createElement('div');
+        mirroredContainer.style.cssText = `display: flex; align-items: center; gap: 10px;`;
+        mirroredContainer.appendChild(mirroredCheckbox);
+        mirroredContainer.appendChild(mirroredLabel);
+        
+        mirroredGroup.appendChild(mirroredContainer);
+        
         content.appendChild(alignGroup);
         content.appendChild(justifyGroup);
         content.appendChild(gapGroup);
         content.appendChild(canTakeObjectsGroup);
+        content.appendChild(mirroredGroup);
         
         modal.appendChild(header);
         modal.appendChild(content);
@@ -3762,7 +3839,69 @@ export class LevelEditor {
         bounceGroup.appendChild(bounceLabel);
         bounceGroup.appendChild(bounceSelect);
         
+        // Mirrored checkbox
+        const mirroredGroup = document.createElement('div');
+        mirroredGroup.style.cssText = `display: flex; flex-direction: column; gap: 10px;`;
+        const mirroredLabel = document.createElement('label');
+        mirroredLabel.textContent = 'Mirrored';
+        mirroredLabel.style.cssText = `color: white; font-size: 16px; font-weight: bold;`;
+        
+        const mirroredCheckbox = document.createElement('input');
+        mirroredCheckbox.type = 'checkbox';
+        mirroredCheckbox.id = 'characteristic-mirrored';
+        // Check if this object has a mirror pair (either direction)
+        mirroredCheckbox.checked = !!(this.characteristicForSettings.mirrorPair || 
+                                      (this.characteristicForSettings.mirrored && 
+                                       this.characteristics.find(c => c.mirrorPair === this.characteristicForSettings)));
+        mirroredCheckbox.style.cssText = `
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        `;
+        mirroredCheckbox.addEventListener('change', async (e) => {
+            const isMirrored = e.target.checked;
+            
+            if (isMirrored) {
+                // Use this.characteristicForSettings directly as the original
+                const original = this.characteristicForSettings;
+                
+                // Create mirror copy
+                const mirrorCopy = await this.createMirrorCopy(original);
+                if (mirrorCopy) {
+                    // The relationship should already be set by createMirrorCopy
+                    // But verify it's set correctly
+                    if (this.characteristicForSettings.mirrorPair !== mirrorCopy) {
+                        this.characteristicForSettings.mirrorPair = mirrorCopy;
+                    }
+                    // Update checkbox state to reflect the new mirror relationship
+                    mirroredCheckbox.checked = true;
+                } else {
+                    console.error('Failed to create mirror copy for characteristic', {
+                        original,
+                        isInCharacteristics: this.characteristics?.includes(original),
+                        characteristicsCount: this.characteristics?.length
+                    });
+                    // Uncheck if creation failed
+                    mirroredCheckbox.checked = false;
+                }
+            } else {
+                // Remove mirror relationship from both objects
+                this.removeMirrorRelationship(this.characteristicForSettings);
+                if (this.characteristicForSettings.mirrorPair) {
+                    this.removeMirrorRelationship(this.characteristicForSettings.mirrorPair);
+                }
+            }
+        });
+        
+        const mirroredContainer = document.createElement('div');
+        mirroredContainer.style.cssText = `display: flex; align-items: center; gap: 10px;`;
+        mirroredContainer.appendChild(mirroredCheckbox);
+        mirroredContainer.appendChild(mirroredLabel);
+        
+        mirroredGroup.appendChild(mirroredContainer);
+        
         content.appendChild(bounceGroup);
+        content.appendChild(mirroredGroup);
         
         modal.appendChild(header);
         modal.appendChild(content);
@@ -3784,6 +3923,187 @@ export class LevelEditor {
             overlay.remove();
         }
         this.characteristicForSettings = null;
+    }
+    
+    createPegSettingsModal() {
+        // Remove existing modal if any
+        const existingModal = document.getElementById('peg-settings-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // Create overlay
+        const overlay = document.createElement('div');
+        overlay.id = 'peg-settings-overlay';
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+            pointer-events: auto;
+        `;
+        
+        // Create modal
+        const modal = document.createElement('div');
+        modal.id = 'peg-settings-modal';
+        modal.style.cssText = `
+            background: linear-gradient(135deg, #2a2a3e 0%, #1a1a2e 100%);
+            border: 3px solid #6495ed;
+            border-radius: 15px;
+            padding: 20px;
+            min-width: 400px;
+            max-width: 600px;
+        `;
+        
+        // Header
+        const header = document.createElement('div');
+        header.style.cssText = `
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #6495ed;
+            padding-bottom: 10px;
+        `;
+        
+        const title = document.createElement('h2');
+        title.textContent = 'Peg Settings';
+        title.style.cssText = `
+            color: white;
+            font-size: 28px;
+            margin: 0;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        `;
+        
+        const closeBtn = document.createElement('button');
+        closeBtn.textContent = '×';
+        closeBtn.style.cssText = `
+            background: rgba(255, 100, 100, 0.3);
+            border: 2px solid #ff6464;
+            border-radius: 8px;
+            color: #ff6464;
+            font-size: 32px;
+            font-weight: bold;
+            width: 50px;
+            height: 50px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            padding: 0;
+            line-height: 1;
+        `;
+        closeBtn.addEventListener('click', () => this.closePegSettings());
+        closeBtn.addEventListener('mouseenter', () => {
+            closeBtn.style.background = 'rgba(255, 100, 100, 0.5)';
+            closeBtn.style.transform = 'scale(1.1)';
+        });
+        closeBtn.addEventListener('mouseleave', () => {
+            closeBtn.style.background = 'rgba(255, 100, 100, 0.3)';
+            closeBtn.style.transform = 'scale(1)';
+        });
+        
+        header.appendChild(title);
+        header.appendChild(closeBtn);
+        
+        // Content
+        const content = document.createElement('div');
+        content.style.cssText = `
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        `;
+        
+        // Mirrored checkbox
+        const mirroredGroup = document.createElement('div');
+        mirroredGroup.style.cssText = `display: flex; flex-direction: column; gap: 10px;`;
+        const mirroredLabel = document.createElement('label');
+        mirroredLabel.textContent = 'Mirrored';
+        mirroredLabel.style.cssText = `color: white; font-size: 16px; font-weight: bold;`;
+        
+        const mirroredCheckbox = document.createElement('input');
+        mirroredCheckbox.type = 'checkbox';
+        mirroredCheckbox.id = 'peg-mirrored';
+        // Check if this object has a mirror pair (either direction)
+        mirroredCheckbox.checked = !!(this.pegForSettings.mirrorPair || 
+                                    (this.pegForSettings.mirrored && 
+                                     this.game.pegs.find(p => p.mirrorPair === this.pegForSettings)));
+        mirroredCheckbox.style.cssText = `
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        `;
+        mirroredCheckbox.addEventListener('change', async (e) => {
+            const isMirrored = e.target.checked;
+            
+            if (isMirrored) {
+                // Use this.pegForSettings directly as the original
+                const original = this.pegForSettings;
+                
+                // Create mirror copy
+                const mirrorCopy = await this.createMirrorCopy(original);
+                if (mirrorCopy) {
+                    // The relationship should already be set by createMirrorCopy
+                    // But verify it's set correctly
+                    if (this.pegForSettings.mirrorPair !== mirrorCopy) {
+                        this.pegForSettings.mirrorPair = mirrorCopy;
+                    }
+                    // Update checkbox state to reflect the new mirror relationship
+                    mirroredCheckbox.checked = true;
+                } else {
+                    console.error('Failed to create mirror copy for peg', {
+                        original,
+                        isInPegs: this.game.pegs?.includes(original),
+                        pegsCount: this.game.pegs?.length
+                    });
+                    // Uncheck if creation failed
+                    mirroredCheckbox.checked = false;
+                }
+            } else {
+                // Remove mirror relationship from both objects
+                this.removeMirrorRelationship(this.pegForSettings);
+                if (this.pegForSettings.mirrorPair) {
+                    this.removeMirrorRelationship(this.pegForSettings.mirrorPair);
+                }
+            }
+        });
+        
+        const mirroredContainer = document.createElement('div');
+        mirroredContainer.style.cssText = `display: flex; align-items: center; gap: 10px;`;
+        mirroredContainer.appendChild(mirroredCheckbox);
+        mirroredContainer.appendChild(mirroredLabel);
+        
+        mirroredGroup.appendChild(mirroredContainer);
+        
+        content.appendChild(mirroredGroup);
+        
+        modal.appendChild(header);
+        modal.appendChild(content);
+        overlay.appendChild(modal);
+        
+        // Close on overlay click
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                this.closePegSettings();
+            }
+        });
+        
+        document.body.appendChild(overlay);
+    }
+    
+    closePegSettings() {
+        const overlay = document.getElementById('peg-settings-overlay');
+        if (overlay) {
+            overlay.remove();
+        }
+        this.pegForSettings = null;
     }
     
     createToolbarItem(id, label, data, shape) {
@@ -4233,7 +4553,6 @@ export class LevelEditor {
         // Close file operations modal
         this.closeFileOperations();
         
-        console.log('New blank level created:', this.currentLevelName);
     }
     
     switchToObjectsButton() {
@@ -4294,54 +4613,160 @@ export class LevelEditor {
         // Clear all existing objects
         this.clearAllObjects();
         
-        console.log('[LevelEditor] Loading dev level file...', {
-            hasCharacteristics: !!devData.characteristics,
-            characteristicsCount: devData.characteristics?.length || 0,
-            hasShapes: !!devData.shapes,
-            shapesCount: devData.shapes?.length || 0,
-            hasSpacers: !!devData.spacers,
-            spacersCount: devData.spacers?.length || 0,
-            hasPegs: !!devData.pegs,
-            pegsCount: devData.pegs?.length || 0
-        });
-        
         // 0. Load pegs first if they exist in dev file (they contain full properties)
         // We'll use these to match with containedPegs positions
         let pegsData = null;
         if (devData.pegs && Array.isArray(devData.pegs) && devData.pegs.length > 0) {
-            console.log(`[LevelEditor] Found ${devData.pegs.length} pegs in dev file for matching...`);
             pegsData = devData.pegs;
         }
         
         // 1. Load characteristics first (they're standalone)
         if (devData.characteristics && Array.isArray(devData.characteristics) && devData.characteristics.length > 0) {
-            console.log(`[LevelEditor] Loading ${devData.characteristics.length} characteristics...`);
             await this.loadCharacteristicsFromData(devData.characteristics);
         }
         
         // 2. Load shapes (empty first, then populate with pegs)
         if (devData.shapes && Array.isArray(devData.shapes) && devData.shapes.length > 0) {
-            console.log(`[LevelEditor] Loading ${devData.shapes.length} shapes...`);
             await this.loadShapesFromDevData(devData.shapes, pegsData);
         }
         
         // 3. Load spacers
         if (devData.spacers && Array.isArray(devData.spacers) && devData.spacers.length > 0) {
-            console.log(`[LevelEditor] Loading ${devData.spacers.length} spacers...`);
             await this.loadSpacersFromData(devData.spacers);
         }
+        
+        // Restore mirror relationships
+        this.restoreMirrorRelationships(devData);
         
         // Mark level as loaded
         this.levelLoaded = true;
         this.switchToObjectsButton();
         this.closeFileOperations();
+    }
+    
+    /**
+     * Restore mirror relationships from loaded data
+     */
+    restoreMirrorRelationships(levelData) {
+        // Restore shape mirror relationships
+        if (levelData.shapes && Array.isArray(levelData.shapes)) {
+            levelData.shapes.forEach((shapeData) => {
+                if (shapeData.mirrorPairPosition) {
+                    // Find shape by position
+                    const shape = this.shapes.find(s => 
+                        Math.abs(s.position.x - shapeData.x) < 0.05 &&
+                        Math.abs(s.position.y - shapeData.y) < 0.05
+                    );
+                    if (shape) {
+                        // Find mirror shape by position
+                        const mirrorShape = this.shapes.find(s => 
+                            Math.abs(s.position.x - shapeData.mirrorPairPosition.x) < 0.05 &&
+                            Math.abs(s.position.y - shapeData.mirrorPairPosition.y) < 0.05
+                        );
+                        if (mirrorShape) {
+                            shape.mirrorPair = mirrorShape;
+                            mirrorShape.mirrorPair = shape;
+                            if (shapeData.mirrored) {
+                                shape.mirrored = true;
+                            } else {
+                                mirrorShape.mirrored = true;
+                            }
+                        }
+                    }
+                }
+            });
+        }
         
-        console.log(`Dev level loaded: ${this.currentLevelName}`, {
-            pegs: this.game.pegs?.length || 0,
-            characteristics: this.game.characteristics?.length || 0,
-            shapes: this.shapes?.length || 0,
-            spacers: this.spacers?.length || 0
-        });
+        // Restore characteristic mirror relationships
+        if (levelData.characteristics && Array.isArray(levelData.characteristics)) {
+            levelData.characteristics.forEach((charData) => {
+                if (charData.mirrorPairPosition) {
+                    // Find characteristic by position
+                    const char = this.characteristics.find(c => 
+                        c.body && 
+                        Math.abs(c.body.position.x - charData.x) < 0.05 &&
+                        Math.abs(c.body.position.y - charData.y) < 0.05
+                    );
+                    if (char && char.body) {
+                        // Find mirror characteristic by position
+                        const mirrorChar = this.characteristics.find(c => 
+                            c.body && 
+                            Math.abs(c.body.position.x - charData.mirrorPairPosition.x) < 0.05 &&
+                            Math.abs(c.body.position.y - charData.mirrorPairPosition.y) < 0.05
+                        );
+                        if (mirrorChar) {
+                            char.mirrorPair = mirrorChar;
+                            mirrorChar.mirrorPair = char;
+                            if (charData.mirrored) {
+                                char.mirrored = true;
+                            } else {
+                                mirrorChar.mirrored = true;
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Restore spacer mirror relationships
+        if (levelData.spacers && Array.isArray(levelData.spacers)) {
+            levelData.spacers.forEach((spacerData) => {
+                if (spacerData.mirrorPairPosition) {
+                    // Find spacer by position
+                    const spacer = this.spacers.find(s => 
+                        Math.abs(s.position.x - spacerData.x) < 0.05 &&
+                        Math.abs(s.position.y - spacerData.y) < 0.05
+                    );
+                    if (spacer) {
+                        // Find mirror spacer by position
+                        const mirrorSpacer = this.spacers.find(s => 
+                            Math.abs(s.position.x - spacerData.mirrorPairPosition.x) < 0.05 &&
+                            Math.abs(s.position.y - spacerData.mirrorPairPosition.y) < 0.05
+                        );
+                        if (mirrorSpacer) {
+                            spacer.mirrorPair = mirrorSpacer;
+                            mirrorSpacer.mirrorPair = spacer;
+                            if (spacerData.mirrored) {
+                                spacer.mirrored = true;
+                            } else {
+                                mirrorSpacer.mirrored = true;
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Restore peg mirror relationships (check all pegs, including those in shapes)
+        if (levelData.pegs && Array.isArray(levelData.pegs)) {
+            levelData.pegs.forEach((pegData) => {
+                if (pegData.mirrorPairPosition) {
+                    // Find peg by position
+                    const peg = this.game.pegs.find(p => 
+                        p.body && 
+                        Math.abs(p.body.position.x - pegData.x) < 0.05 &&
+                        Math.abs(p.body.position.y - pegData.y) < 0.05
+                    );
+                    if (peg && peg.body) {
+                        // Find mirror peg by position
+                        const mirrorPeg = this.game.pegs.find(p => 
+                            p.body && 
+                            Math.abs(p.body.position.x - pegData.mirrorPairPosition.x) < 0.05 &&
+                            Math.abs(p.body.position.y - pegData.mirrorPairPosition.y) < 0.05
+                        );
+                        if (mirrorPeg) {
+                            peg.mirrorPair = mirrorPeg;
+                            mirrorPeg.mirrorPair = peg;
+                            if (pegData.mirrored) {
+                                peg.mirrored = true;
+                            } else {
+                                mirrorPeg.mirrored = true;
+                            }
+                        }
+                    }
+                }
+            });
+        }
     }
     
     async loadRegularLevelFromFile(file, levelData) {
@@ -4358,16 +4783,6 @@ export class LevelEditor {
         // Clear all existing objects
         this.clearAllObjects();
         
-        console.log('[LevelEditor] Parsed level data:', {
-            name: levelData.name,
-            hasPegs: !!levelData.pegs,
-            pegsLength: levelData.pegs?.length,
-            hasCharacteristics: !!levelData.characteristics,
-            characteristicsLength: levelData.characteristics?.length,
-            keys: Object.keys(levelData),
-            rawPegs: levelData.pegs
-        });
-        
         // Debug: Check if pegs exists but is not an array
         if (levelData.pegs !== undefined && !Array.isArray(levelData.pegs)) {
             console.error('[LevelEditor] WARNING: levelData.pegs exists but is not an array:', typeof levelData.pegs, levelData.pegs);
@@ -4375,7 +4790,6 @@ export class LevelEditor {
         
         // Load pegs from level data
         if (levelData.pegs && Array.isArray(levelData.pegs) && levelData.pegs.length > 0) {
-            console.log(`[LevelEditor] Found ${levelData.pegs.length} pegs to load`);
             await this.loadPegsFromData(levelData.pegs);
         } else {
             console.warn('[LevelEditor] No pegs found in level data', {
@@ -4387,21 +4801,13 @@ export class LevelEditor {
         
         // Load characteristics from level data
         if (levelData.characteristics && Array.isArray(levelData.characteristics) && levelData.characteristics.length > 0) {
-            console.log(`[LevelEditor] Found ${levelData.characteristics.length} characteristics to load`);
             await this.loadCharacteristicsFromData(levelData.characteristics);
-        } else {
-            console.log('[LevelEditor] No characteristics found in level data', levelData.characteristics);
         }
         
         // Mark level as loaded
         this.levelLoaded = true;
         this.switchToObjectsButton();
         this.closeFileOperations();
-        
-        console.log(`Level loaded: ${this.currentLevelName}`, {
-            pegs: this.game.pegs?.length || 0,
-            characteristics: this.game.characteristics?.length || 0
-        });
     }
     
     async loadShapesFromDevData(shapesData, pegsData = null) {
@@ -4415,7 +4821,6 @@ export class LevelEditor {
             const { Peg } = await import('../entities/Peg.js');
             const pegMaterial = this.game.physicsWorld.getPegMaterial();
             
-            console.log(`[LevelEditor] Loading ${shapesData.length} shapes from dev data...`);
             
             for (const shapeData of shapesData) {
                 try {
@@ -4572,7 +4977,6 @@ export class LevelEditor {
                 }
             }
             
-            console.log(`[LevelEditor] Successfully loaded ${this.shapes.length} shapes with pegs`);
         } catch (error) {
             console.error('[LevelEditor] Error in loadShapesFromDevData:', error);
         }
@@ -4585,7 +4989,6 @@ export class LevelEditor {
             const text = await file.text();
             const devData = JSON.parse(text);
             
-            console.log('[LevelEditor] Loading dev file:', devData);
             
             // Load shapes from dev data
             if (devData.shapes && Array.isArray(devData.shapes)) {
@@ -4596,11 +4999,6 @@ export class LevelEditor {
             if (devData.spacers && Array.isArray(devData.spacers)) {
                 await this.loadSpacersFromData(devData.spacers);
             }
-            
-            console.log('[LevelEditor] Dev file loaded:', {
-                shapes: this.shapes?.length || 0,
-                spacers: this.spacers?.length || 0
-            });
         } catch (error) {
             console.error('Error loading dev file:', error);
             alert('Error loading dev file: ' + error.message);
@@ -4676,7 +5074,6 @@ export class LevelEditor {
             const { Peg } = await import('../entities/Peg.js');
             const pegMaterial = this.game.physicsWorld.getPegMaterial();
             
-            console.log(`[LevelEditor] Loading ${pegsData.length} pegs...`);
             
             for (const pegData of pegsData) {
                 try {
@@ -4743,7 +5140,6 @@ export class LevelEditor {
                 }
             }
             
-            console.log(`[LevelEditor] Successfully loaded ${this.game.pegs.length} pegs`);
         } catch (error) {
             console.error('[LevelEditor] Error in loadPegsFromData:', error);
         }
@@ -4758,7 +5154,6 @@ export class LevelEditor {
         try {
             const { Characteristic } = await import('../entities/Characteristic.js');
             
-            console.log(`[LevelEditor] Loading ${characteristicsData.length} characteristics...`);
             
             for (const charData of characteristicsData) {
                 try {
@@ -4809,7 +5204,6 @@ export class LevelEditor {
                 }
             }
             
-            console.log(`[LevelEditor] Successfully loaded ${this.game.characteristics.length} characteristics`);
         } catch (error) {
             console.error('[LevelEditor] Error in loadCharacteristicsFromData:', error);
         }
@@ -4824,7 +5218,6 @@ export class LevelEditor {
         try {
             const { Shape } = await import('../entities/Shape.js');
             
-            console.log(`[LevelEditor] Loading ${shapesData.length} shapes...`);
             
             for (const shapeData of shapesData) {
                 try {
@@ -4914,7 +5307,6 @@ export class LevelEditor {
                 }
             }
             
-            console.log(`[LevelEditor] Successfully loaded ${this.shapes.length} shapes`);
         } catch (error) {
             console.error('[LevelEditor] Error in loadShapesFromData:', error);
         }
@@ -4929,7 +5321,6 @@ export class LevelEditor {
         try {
             const { Spacer } = await import('../entities/Spacer.js');
             
-            console.log(`[LevelEditor] Loading ${spacersData.length} spacers...`);
             
             for (const spacerData of spacersData) {
                 try {
@@ -4962,7 +5353,6 @@ export class LevelEditor {
                 }
             }
             
-            console.log(`[LevelEditor] Successfully loaded ${this.spacers.length} spacers`);
         } catch (error) {
             console.error('[LevelEditor] Error in loadSpacersFromData:', error);
         }
@@ -4992,7 +5382,6 @@ export class LevelEditor {
         const allCharacteristics = (this.game && this.game.characteristics) ? this.game.characteristics : [];
         
         // Log for debugging
-        console.log('[saveLevel] Pegs:', allPegs.length, 'Characteristics:', allCharacteristics.length);
         
         const levelData = {
             name: this.currentLevelName,
@@ -5049,6 +5438,15 @@ export class LevelEditor {
                     }
                 }
                 
+                // Get mirror pair position if exists
+                let charMirrorPairPosition = null;
+                if (char.mirrorPair && char.mirrorPair.body) {
+                    charMirrorPairPosition = {
+                        x: char.mirrorPair.body.position.x,
+                        y: char.mirrorPair.body.position.y
+                    };
+                }
+                
                 return {
                     x: char.body.position.x,
                     y: char.body.position.y,
@@ -5056,7 +5454,9 @@ export class LevelEditor {
                     shape: char.shape || 'rect',
                     size: char.size,
                     rotation: rotation,
-                    bounceType: charObj ? (charObj.bounceType || 'normal') : (char.bounceType || 'normal')
+                    bounceType: charObj ? (charObj.bounceType || 'normal') : (char.bounceType || 'normal'),
+                    mirrored: char.mirrored === true,
+                    mirrorPairPosition: charMirrorPairPosition
                 };
             })
         };
@@ -5074,7 +5474,6 @@ export class LevelEditor {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         
-        console.log('Level saved:', levelData);
         
         // Save dev file with shapes, spacers, and characteristics (editor-only tools)
         const devData = {
@@ -5101,6 +5500,15 @@ export class LevelEditor {
                     }
                 }
                 
+                // Get mirror pair position if exists
+                let charMirrorPairPosition = null;
+                if (char.mirrorPair && char.mirrorPair.body) {
+                    charMirrorPairPosition = {
+                        x: char.mirrorPair.body.position.x,
+                        y: char.mirrorPair.body.position.y
+                    };
+                }
+                
                 return {
                     x: char.body.position.x,
                     y: char.body.position.y,
@@ -5108,7 +5516,9 @@ export class LevelEditor {
                     shape: char.shape || 'rect',
                     size: char.size,
                     rotation: rotation,
-                    bounceType: charObj ? (charObj.bounceType || 'normal') : (char.bounceType || 'normal')
+                    bounceType: charObj ? (charObj.bounceType || 'normal') : (char.bounceType || 'normal'),
+                    mirrored: char.mirrored === true,
+                    mirrorPairPosition: charMirrorPairPosition
                 };
             }),
             shapes: this.shapes.map(shape => {
@@ -5122,6 +5532,15 @@ export class LevelEditor {
                     return false;
                 });
                 
+                // Get mirror pair position if exists
+                let mirrorPairPosition = null;
+                if (shape.mirrorPair && shape.mirrorPair.position) {
+                    mirrorPairPosition = {
+                        x: shape.mirrorPair.position.x,
+                        y: shape.mirrorPair.position.y
+                    };
+                }
+                
                 const shapeData = {
                     x: shape.position.x,
                     y: shape.position.y,
@@ -5132,7 +5551,9 @@ export class LevelEditor {
                     justify: (obj && obj.justify !== undefined) ? obj.justify : (shape.type === 'circle' ? shape.justify || 'top-center' : shape.justify || 'center'),
                     gap: (obj && obj.gap !== undefined) ? obj.gap : shape.gap || 0.1,
                     rotation: shape.rotation || 0,
-                    canTakeObjects: (obj && obj.canTakeObjects !== undefined) ? obj.canTakeObjects : (shape.canTakeObjects !== false)
+                    canTakeObjects: (obj && obj.canTakeObjects !== undefined) ? obj.canTakeObjects : (shape.canTakeObjects !== false),
+                    mirrored: shape.mirrored === true,
+                    mirrorPairPosition: mirrorPairPosition
                 };
                 
                 // Add contained pegs with full properties for editor restoration
@@ -5155,6 +5576,15 @@ export class LevelEditor {
                             if (isNaN(rotation)) rotation = 0;
                         }
                         
+                        // Get mirror pair position if exists
+                        let pegMirrorPairPosition = null;
+                        if (peg.mirrorPair && peg.mirrorPair.body) {
+                            pegMirrorPairPosition = {
+                                x: peg.mirrorPair.body.position.x,
+                                y: peg.mirrorPair.body.position.y
+                            };
+                        }
+                        
                         return {
                             x: peg.body.position.x,
                             y: peg.body.position.y,
@@ -5162,7 +5592,9 @@ export class LevelEditor {
                             type: peg.type || (pegObj ? pegObj.type : 'round'),
                             size: peg.size || (pegObj ? pegObj.size : 'base'),
                             color: pegObj ? (pegObj.color || 0x4a90e2) : 0x4a90e2,
-                            rotation: rotation
+                            rotation: rotation,
+                            mirrored: peg.mirrored === true,
+                            mirrorPairPosition: pegMirrorPairPosition
                         };
                     });
                 }
@@ -5180,12 +5612,26 @@ export class LevelEditor {
                 
                 return shapeData;
             }),
-            spacers: this.placedObjects.filter(obj => obj.category === 'spacer').map(obj => ({
-                x: obj.position.x,
-                y: obj.position.y,
-                z: obj.position.z || 0,
-                size: obj.size || { width: 1, height: 1 }
-            }))
+            spacers: this.placedObjects.filter(obj => obj.category === 'spacer').map(obj => {
+                const spacer = this.spacers.find(s => Math.abs(s.position.x - obj.position.x) < 0.05 &&
+                                                       Math.abs(s.position.y - obj.position.y) < 0.05);
+                let spacerMirrorPairPosition = null;
+                if (spacer && spacer.mirrorPair && spacer.mirrorPair.position) {
+                    spacerMirrorPairPosition = {
+                        x: spacer.mirrorPair.position.x,
+                        y: spacer.mirrorPair.position.y
+                    };
+                }
+                
+                return {
+                    x: obj.position.x,
+                    y: obj.position.y,
+                    z: obj.position.z || 0,
+                    size: obj.size || { width: 1, height: 1 },
+                    mirrored: spacer ? (spacer.mirrored === true) : false,
+                    mirrorPairPosition: spacerMirrorPairPosition
+                };
+            })
         };
         
         // Convert dev data to JSON and create download
@@ -5201,7 +5647,830 @@ export class LevelEditor {
         document.body.removeChild(devA);
         URL.revokeObjectURL(devUrl);
         
-        console.log('Dev file saved:', devData);
+    }
+    
+    /**
+     * Mirror a justify setting around the Y-axis
+     * For line shapes: left ↔ right, center/between/around stay same
+     * For circle shapes: left ↔ right, top/bottom stay same
+     */
+    mirrorJustify(justify, shapeType) {
+        if (shapeType === 'line') {
+            if (justify === 'left') return 'right';
+            if (justify === 'right') return 'left';
+            // center, between, around stay the same
+            return justify;
+        } else if (shapeType === 'circle') {
+            // Circle justify format: 'top-center', 'left-clockwise', etc.
+            if (justify.includes('left')) {
+                return justify.replace('left', 'right');
+            } else if (justify.includes('right')) {
+                return justify.replace('right', 'left');
+            }
+            // top-center, bottom-center, top-clockwise, etc. stay the same
+            return justify;
+        }
+        return justify;
+    }
+    
+    /**
+     * Find the placed object entry for a given object
+     */
+    findPlacedObject(obj) {
+        if (!obj || !obj.position) return null;
+        
+        return this.placedObjects.find(placedObj => {
+            if (!placedObj.position) return false;
+            
+            // Check category match
+            if (obj.category === 'shape' && placedObj.category === 'shape') {
+                const distance = Math.sqrt(
+                    Math.pow(placedObj.position.x - obj.position.x, 2) + 
+                    Math.pow(placedObj.position.y - obj.position.y, 2)
+                );
+                return distance < 0.05;
+            } else if (obj.category === 'characteristic' && placedObj.category === 'characteristic') {
+                const distance = Math.sqrt(
+                    Math.pow(placedObj.position.x - obj.position.x, 2) + 
+                    Math.pow(placedObj.position.y - obj.position.y, 2)
+                );
+                return distance < 0.05;
+            } else if (obj.category === 'peg' && placedObj.category === 'peg') {
+                const objPos = obj.body ? obj.body.position : obj.position;
+                const distance = Math.sqrt(
+                    Math.pow(placedObj.position.x - objPos.x, 2) + 
+                    Math.pow(placedObj.position.y - objPos.y, 2)
+                );
+                return distance < 0.05;
+            } else if (obj.category === 'spacer' && placedObj.category === 'spacer') {
+                const distance = Math.sqrt(
+                    Math.pow(placedObj.position.x - obj.position.x, 2) + 
+                    Math.pow(placedObj.position.y - obj.position.y, 2)
+                );
+                return distance < 0.05;
+            }
+            return false;
+        });
+    }
+    
+    /**
+     * Create a mirror copy of an object
+     */
+    async createMirrorCopy(originalObj) {
+        if (!originalObj) return null;
+        
+        const originalPos = originalObj.position || (originalObj.body ? originalObj.body.position : null);
+        if (!originalPos) return null;
+        
+        // Mirror position around Y-axis
+        const mirroredX = -originalPos.x;
+        const mirroredY = originalPos.y;
+        const roundedX = this.roundToDecimals(mirroredX);
+        const roundedY = this.roundToDecimals(mirroredY);
+        
+        let mirrorCopy = null;
+        const placedObj = this.findPlacedObject(originalObj);
+        
+        // Check if it's a shape - shapes are in this.shapes array and have containedPegs property
+        const isShape = originalObj.containedPegs !== undefined || 
+                       (this.shapes && this.shapes.includes(originalObj)) ||
+                       (placedObj && placedObj.category === 'shape');
+        
+        if (isShape) {
+            // Find the shape - prefer direct match, then by position
+            let shape = null;
+            if (this.shapes && this.shapes.includes(originalObj)) {
+                shape = originalObj;
+            } else {
+                shape = this.shapes.find(s => 
+                    s.position && 
+                    Math.abs(s.position.x - originalPos.x) < 0.05 && 
+                    Math.abs(s.position.y - originalPos.y) < 0.05
+                );
+            }
+            
+            if (!shape) {
+                console.error('createMirrorCopy: Could not find shape for', originalObj);
+                return null;
+            }
+            
+            // Check if mirror already exists
+            if (shape.mirrorPair) {
+                return shape.mirrorPair;
+            }
+            
+            const { Shape } = await import('../entities/Shape.js');
+            mirrorCopy = new Shape(
+                this.game.scene,
+                { x: roundedX, y: roundedY, z: 0 },
+                shape.type,
+                { width: shape.size.width, height: shape.size.height }
+            );
+            
+            // Copy shape settings with mirrored justify
+            mirrorCopy.align = shape.align;
+            mirrorCopy.justify = this.mirrorJustify(shape.justify, shape.type);
+            mirrorCopy.gap = shape.gap;
+            // Mirror rotation (negate the angle)
+            const mirroredRotation = -(shape.rotation || 0);
+            mirrorCopy.setRotation(mirroredRotation);
+            mirrorCopy.canTakeObjects = shape.canTakeObjects;
+            mirrorCopy.mirrored = true;
+            mirrorCopy.mirrorPair = shape;
+            shape.mirrorPair = mirrorCopy;
+            
+            this.shapes.push(mirrorCopy);
+            
+            console.log('Mirror copy created:', {
+                original: { x: shape.position.x, y: shape.position.y },
+                mirror: { x: mirrorCopy.position.x, y: mirrorCopy.position.y },
+                originalHasMirrorPair: !!shape.mirrorPair,
+                mirrorHasMirrorPair: !!mirrorCopy.mirrorPair
+            });
+            
+            // Store in placed objects
+            this.placedObjects.push({
+                category: 'shape',
+                type: shape.type,
+                position: { x: roundedX, y: roundedY, z: 0 },
+                size: { width: shape.size.width, height: shape.size.height },
+                isEditorOnly: true,
+                align: mirrorCopy.align,
+                justify: mirrorCopy.justify,
+                gap: mirrorCopy.gap,
+                rotation: mirrorCopy.rotation,
+                canTakeObjects: mirrorCopy.canTakeObjects,
+                mirrored: true,
+                mirrorPairId: this.findPlacedObject(shape) ? 'original' : null
+            });
+            
+            // Mirror all contained pegs and characteristics
+            if (shape.containedPegs && shape.containedPegs.length > 0) {
+                const { Peg } = await import('../entities/Peg.js');
+                const pegMaterial = this.game.physicsWorld.getPegMaterial();
+                
+                shape.containedPegs.forEach((sourcePeg, index) => {
+                    if (!sourcePeg || !sourcePeg.body) return;
+                    
+                    const peg = new Peg(
+                        this.game.scene,
+                        this.game.physicsWorld,
+                        { x: roundedX, y: roundedY, z: 0 },
+                        sourcePeg.color,
+                        pegMaterial,
+                        sourcePeg.type,
+                        sourcePeg.size
+                    );
+                    
+                    peg.pointValue = sourcePeg.pointValue || 300;
+                    peg.isOrange = sourcePeg.isOrange || false;
+                    peg.isGreen = sourcePeg.isGreen || false;
+                    peg.isPurple = sourcePeg.isPurple || false;
+                    peg.mirrored = true;
+                    peg.mirrorPair = sourcePeg;
+                    sourcePeg.mirrorPair = peg;
+                    
+                    this.game.pegs.push(peg);
+                    mirrorCopy.addPeg(peg, index);
+                    
+                    this.placedObjects.push({
+                        category: 'peg',
+                        type: sourcePeg.type,
+                        size: sourcePeg.size,
+                        position: { x: roundedX, y: roundedY, z: 0 },
+                        color: sourcePeg.color,
+                        rotation: 0,
+                        mirrored: true,
+                        mirrorPairId: 'original'
+                    });
+                });
+            }
+            
+            if (shape.containedCharacteristics && shape.containedCharacteristics.length > 0) {
+                const { Characteristic } = await import('../entities/Characteristic.js');
+                
+                shape.containedCharacteristics.forEach((sourceChar, index) => {
+                    if (!sourceChar || !sourceChar.mesh) return;
+                    
+                    const bounceType = sourceChar.bounceType || 'normal';
+                    const characteristic = new Characteristic(
+                        this.game.scene,
+                        this.game.physicsWorld,
+                        { x: roundedX, y: roundedY, z: 0 },
+                        sourceChar.shape,
+                        sourceChar.size,
+                        bounceType
+                    );
+                    
+                    if (sourceChar.rotation !== undefined) {
+                        characteristic.setRotation(sourceChar.rotation);
+                    }
+                    
+                    characteristic.mirrored = true;
+                    characteristic.mirrorPair = sourceChar;
+                    sourceChar.mirrorPair = characteristic;
+                    
+                    this.characteristics.push(characteristic);
+                    this.game.characteristics.push(characteristic);
+                    mirrorCopy.addCharacteristic(characteristic, index);
+                    
+                    const toolType = sourceChar.shape === 'circle' ? 'round' : 'rect';
+                    this.placedObjects.push({
+                        category: 'characteristic',
+                        type: toolType,
+                        shape: sourceChar.shape,
+                        position: { x: roundedX, y: roundedY, z: 0 },
+                        size: sourceChar.size,
+                        rotation: characteristic.rotation || 0,
+                        bounceType: bounceType,
+                        mirrored: true,
+                        mirrorPairId: 'original'
+                    });
+                });
+            }
+            
+        } else {
+            // Check for peg first (before characteristic, since both have body and mesh)
+            const isPeg = (this.game.pegs && this.game.pegs.includes(originalObj)) ||
+                         (placedObj && placedObj.category === 'peg') ||
+                         (originalObj.body && originalObj.mesh && originalObj.containedPegs === undefined && 
+                          !originalObj.bounceType && !originalObj.shape && 
+                          !(this.characteristics && this.characteristics.includes(originalObj)));
+            
+            if (isPeg) {
+                // Find the peg - prefer direct match, then by position
+                let peg = null;
+                if (this.game.pegs && this.game.pegs.includes(originalObj)) {
+                    peg = originalObj;
+                } else {
+                    peg = this.game.pegs.find(p => 
+                        p.body && 
+                        Math.abs(p.body.position.x - originalPos.x) < 0.05 &&
+                        Math.abs(p.body.position.y - originalPos.y) < 0.05
+                    );
+                }
+                
+                if (!peg) {
+                    // Not a peg, continue to check for characteristic
+                } else {
+                    // Check if mirror already exists
+                    if (peg.mirrorPair) {
+                        return peg.mirrorPair;
+                    }
+                    
+                    const { Peg } = await import('../entities/Peg.js');
+                    const pegMaterial = this.game.physicsWorld.getPegMaterial();
+                    mirrorCopy = new Peg(
+                        this.game.scene,
+                        this.game.physicsWorld,
+                        { x: roundedX, y: roundedY, z: 0 },
+                        peg.color,
+                        pegMaterial,
+                        peg.type,
+                        peg.size
+                    );
+                    
+                    mirrorCopy.pointValue = peg.pointValue || 300;
+                    mirrorCopy.isOrange = peg.isOrange || false;
+                    mirrorCopy.isGreen = peg.isGreen || false;
+                    mirrorCopy.isPurple = peg.isPurple || false;
+                    mirrorCopy.mirrored = true;
+                    mirrorCopy.mirrorPair = peg;
+                    peg.mirrorPair = mirrorCopy;
+                    
+                    this.game.pegs.push(mirrorCopy);
+                    
+                    this.placedObjects.push({
+                        category: 'peg',
+                        type: peg.type,
+                        size: peg.size,
+                        position: { x: roundedX, y: roundedY, z: 0 },
+                        color: peg.color,
+                        rotation: 0,
+                        mirrored: true,
+                        mirrorPairId: 'original'
+                    });
+                }
+            }
+            
+            // Check if it's a characteristic - characteristics have body, mesh, bounceType or shape, but no containedPegs
+            // Only check if we haven't already created a mirror copy
+            if (!mirrorCopy) {
+                const isCharacteristic = (this.characteristics && this.characteristics.includes(originalObj)) ||
+                                        (placedObj && placedObj.category === 'characteristic') ||
+                                        (originalObj.body && originalObj.mesh && originalObj.containedPegs === undefined && 
+                                         (originalObj.bounceType !== undefined || originalObj.shape !== undefined) &&
+                                         !(this.game.pegs && this.game.pegs.includes(originalObj)));
+                
+                if (isCharacteristic) {
+                    // Find the characteristic - prefer direct match, then by position
+                    let characteristic = null;
+                    if (this.characteristics && this.characteristics.includes(originalObj)) {
+                        characteristic = originalObj;
+                    } else {
+                        characteristic = this.characteristics.find(c => 
+                            c.position && 
+                            Math.abs(c.position.x - originalPos.x) < 0.05 &&
+                            Math.abs(c.position.y - originalPos.y) < 0.05
+                        );
+                    }
+                    
+                    if (!characteristic) {
+                        console.error('createMirrorCopy: Could not find characteristic', {
+                            originalObj,
+                            originalPos,
+                            characteristicsCount: this.characteristics?.length,
+                            isInCharacteristics: this.characteristics?.includes(originalObj)
+                        });
+                        return null;
+                    }
+                
+                // Check if mirror already exists
+                if (characteristic.mirrorPair) {
+                    return characteristic.mirrorPair;
+                }
+                
+                const { Characteristic } = await import('../entities/Characteristic.js');
+                const bounceType = characteristic.bounceType || 'normal';
+                mirrorCopy = new Characteristic(
+                    this.game.scene,
+                    this.game.physicsWorld,
+                    { x: roundedX, y: roundedY, z: 0 },
+                    characteristic.shape,
+                    characteristic.size,
+                    bounceType
+                );
+                
+                // Mirror rotation (negate the angle) if it exists
+                if (characteristic.rotation !== undefined) {
+                    const mirroredRotation = -characteristic.rotation;
+                    mirrorCopy.setRotation(mirroredRotation);
+                }
+                
+                mirrorCopy.mirrored = true;
+                mirrorCopy.mirrorPair = characteristic;
+                characteristic.mirrorPair = mirrorCopy;
+                
+                this.characteristics.push(mirrorCopy);
+                this.game.characteristics.push(mirrorCopy);
+                
+                console.log('Characteristic mirror copy created:', {
+                    original: { x: characteristic.position.x, y: characteristic.position.y, rotation: characteristic.rotation },
+                    mirror: { x: mirrorCopy.position.x, y: mirrorCopy.position.y, rotation: mirrorCopy.rotation },
+                    originalHasMirrorPair: !!characteristic.mirrorPair,
+                    mirrorHasMirrorPair: !!mirrorCopy.mirrorPair
+                });
+                
+                const toolType = characteristic.shape === 'circle' ? 'round' : 'rect';
+                this.placedObjects.push({
+                    category: 'characteristic',
+                    type: toolType,
+                    shape: characteristic.shape,
+                    position: { x: roundedX, y: roundedY, z: 0 },
+                    size: characteristic.size,
+                    rotation: mirrorCopy.rotation || 0,
+                    bounceType: bounceType,
+                    mirrored: true,
+                    mirrorPairId: 'original'
+                });
+                }
+            }
+        }
+        
+        // Check for spacer
+        if (!mirrorCopy && (originalObj.category === 'spacer' || (placedObj && placedObj.category === 'spacer'))) {
+            const spacer = originalObj.category === 'spacer' ? originalObj :
+                          this.spacers.find(s => Math.abs(s.position.x - originalPos.x) < 0.05 &&
+                                                 Math.abs(s.position.y - originalPos.y) < 0.05);
+            if (!spacer) return null;
+            
+            const { Spacer } = await import('../entities/Spacer.js');
+            mirrorCopy = new Spacer(
+                this.game.scene,
+                { x: roundedX, y: roundedY, z: 0 },
+                spacer.size
+            );
+            
+            mirrorCopy.mirrored = true;
+            mirrorCopy.mirrorPair = spacer;
+            spacer.mirrorPair = mirrorCopy;
+            
+            this.spacers.push(mirrorCopy);
+            
+            this.placedObjects.push({
+                category: 'spacer',
+                type: 'spacer',
+                position: { x: roundedX, y: roundedY, z: 0 },
+                size: spacer.size,
+                isEditorOnly: true,
+                mirrored: true,
+                mirrorPairId: 'original'
+            });
+        }
+        
+        return mirrorCopy;
+    }
+    
+    /**
+     * Sync changes from original to mirror (or vice versa)
+     */
+    syncToMirror(originalObj, skipPosition = false) {
+        if (!originalObj || !originalObj.mirrorPair) return;
+        
+        const mirrorObj = originalObj.mirrorPair;
+        const originalPos = originalObj.position || (originalObj.body ? originalObj.body.position : null);
+        
+        if (!skipPosition && originalPos) {
+            // Sync position (mirror X coordinate)
+            const mirroredX = -originalPos.x;
+            const mirroredY = originalPos.y;
+            const roundedX = this.roundToDecimals(mirroredX);
+            const roundedY = this.roundToDecimals(mirroredY);
+            
+            if (mirrorObj.moveTo) {
+                mirrorObj.moveTo({ x: roundedX, y: roundedY, z: 0 });
+            } else if (mirrorObj.body) {
+                mirrorObj.body.position.set(roundedX, roundedY, 0);
+                if (mirrorObj.mesh) {
+                    mirrorObj.mesh.position.set(roundedX, roundedY, mirrorObj.mesh.position.z || 0);
+                }
+            }
+            
+            // Update placed object
+            const mirrorPlacedObj = this.findPlacedObject(mirrorObj);
+            if (mirrorPlacedObj) {
+                mirrorPlacedObj.position.x = roundedX;
+                mirrorPlacedObj.position.y = roundedY;
+            }
+        }
+        
+        // Sync other properties
+        if (originalObj.category === 'shape' || (originalObj.containedPegs !== undefined)) {
+            const shape = originalObj;
+            const mirrorShape = mirrorObj;
+            
+            // Sync justify (mirror it)
+            if (shape.justify !== undefined) {
+                mirrorShape.justify = this.mirrorJustify(shape.justify, shape.type);
+                const mirrorPlacedObj = this.findPlacedObject(mirrorShape);
+                if (mirrorPlacedObj) {
+                    mirrorPlacedObj.justify = mirrorShape.justify;
+                }
+            }
+            
+            // Sync align, gap, canTakeObjects
+            if (shape.align !== undefined) {
+                mirrorShape.align = shape.align;
+            }
+            if (shape.gap !== undefined) {
+                mirrorShape.gap = shape.gap;
+            }
+            if (shape.canTakeObjects !== undefined) {
+                mirrorShape.canTakeObjects = shape.canTakeObjects;
+            }
+            
+            // Sync rotation (mirror it - negate the angle)
+            // Always sync rotation (even if 0) - read from shape.rotation property
+            const currentRotation = shape.rotation !== undefined ? shape.rotation : (shape.mesh ? shape.mesh.rotation.z : 0);
+            const mirroredRotation = -currentRotation;
+            mirrorShape.setRotation(mirroredRotation);
+            const mirrorPlacedObj = this.findPlacedObject(mirrorShape);
+            if (mirrorPlacedObj) {
+                mirrorPlacedObj.rotation = mirroredRotation;
+            }
+            
+            // Sync size (for resize operations)
+            if (shape.size !== undefined) {
+                mirrorShape.updateSize({ width: shape.size.width, height: shape.size.height });
+                const mirrorPlacedObj = this.findPlacedObject(mirrorShape);
+                if (mirrorPlacedObj) {
+                    mirrorPlacedObj.size = { width: shape.size.width, height: shape.size.height };
+                }
+            }
+        } else if (originalObj.body && originalObj.mesh && originalObj.containedPegs === undefined && 
+                   !(this.game.pegs && this.game.pegs.includes(originalObj)) &&
+                   ((this.characteristics && this.characteristics.includes(originalObj)) ||
+                    originalObj.bounceType !== undefined || originalObj.shape !== undefined)) {
+            // It's a characteristic - sync rotation (mirror it)
+            const characteristic = originalObj;
+            const mirrorChar = mirrorObj;
+            
+            // Always sync rotation (even if 0) - read from characteristic.rotation property
+            const currentRotation = characteristic.rotation !== undefined ? characteristic.rotation : (characteristic.mesh ? characteristic.mesh.rotation.z : 0);
+            const mirroredRotation = -currentRotation;
+            mirrorChar.setRotation(mirroredRotation);
+            const mirrorPlacedObj = this.findPlacedObject(mirrorChar);
+            if (mirrorPlacedObj) {
+                mirrorPlacedObj.rotation = mirroredRotation;
+            }
+            
+            // Sync size (for resize operations)
+            if (characteristic.size !== undefined) {
+                mirrorChar.updateSize(characteristic.size);
+                const mirrorPlacedObj = this.findPlacedObject(mirrorChar);
+                if (mirrorPlacedObj) {
+                    mirrorPlacedObj.size = characteristic.size;
+                }
+            }
+        } else if (originalObj.updateSize && !originalObj.containedPegs && !originalObj.body) {
+            // It's a spacer - sync size
+            const spacer = originalObj;
+            const mirrorSpacer = mirrorObj;
+            
+            if (spacer.size !== undefined) {
+                mirrorSpacer.updateSize(spacer.size);
+                const mirrorPlacedObj = this.findPlacedObject(mirrorSpacer);
+                if (mirrorPlacedObj) {
+                    mirrorPlacedObj.size = spacer.size;
+                }
+            }
+        } else if (originalObj.body && originalObj.mesh && originalObj.containedPegs === undefined && 
+                   !(this.characteristics && this.characteristics.includes(originalObj))) {
+            // It's a peg - sync peg properties (color, type, pointValue, special flags)
+            const peg = originalObj;
+            const mirrorPeg = mirrorObj;
+            
+            // Sync color
+            if (peg.color !== undefined && mirrorPeg.setColor) {
+                mirrorPeg.setColor(peg.color);
+                const mirrorPlacedObj = this.findPlacedObject(mirrorPeg);
+                if (mirrorPlacedObj) {
+                    mirrorPlacedObj.color = peg.color;
+                }
+            }
+            
+            // Sync type
+            if (peg.type !== undefined) {
+                // Type is set at creation, but we can sync it in placed objects
+                const mirrorPlacedObj = this.findPlacedObject(mirrorPeg);
+                if (mirrorPlacedObj) {
+                    mirrorPlacedObj.type = peg.type;
+                }
+            }
+            
+            // Sync point value
+            if (peg.pointValue !== undefined) {
+                mirrorPeg.pointValue = peg.pointValue;
+            }
+            
+            // Sync special flags
+            if (peg.isOrange !== undefined) {
+                mirrorPeg.isOrange = peg.isOrange;
+            }
+            if (peg.isGreen !== undefined) {
+                mirrorPeg.isGreen = peg.isGreen;
+            }
+            if (peg.isPurple !== undefined) {
+                mirrorPeg.isPurple = peg.isPurple;
+            }
+        }
+    }
+    
+    /**
+     * Remove mirror relationship
+     */
+    removeMirrorRelationship(obj) {
+        if (!obj) return;
+        
+        if (obj.mirrorPair) {
+            const mirrorObj = obj.mirrorPair;
+            if (mirrorObj.mirrorPair === obj) {
+                mirrorObj.mirrorPair = null;
+                mirrorObj.mirrored = false;
+            }
+            obj.mirrorPair = null;
+            obj.mirrored = false;
+        }
+        
+        // Update placed objects
+        const placedObj = this.findPlacedObject(obj);
+        if (placedObj) {
+            placedObj.mirrored = false;
+            delete placedObj.mirrorPairId;
+        }
+    }
+    
+    /**
+     * Add peg to shape with mirror sync
+     */
+    addPegToShapeWithMirror(shape, peg, insertionIndex = null) {
+        shape.addPeg(peg, insertionIndex);
+        
+        // If shape has a mirror pair, add mirrored peg to mirror shape
+        if (shape.mirrorPair && !shape._syncing) {
+            shape._syncing = true;
+            const mirrorShape = shape.mirrorPair;
+            
+            // Create mirror copy of peg (async, but don't block)
+            import('../entities/Peg.js').then(({ Peg }) => {
+                const mirrorPegPos = peg.body ? peg.body.position : { x: 0, y: 0 };
+                const mirrorPegX = -mirrorPegPos.x;
+                const mirrorPegY = mirrorPegPos.y;
+                
+                const pegMaterial = this.game.physicsWorld.getPegMaterial();
+                const mirrorPeg = new Peg(
+                    this.game.scene,
+                    this.game.physicsWorld,
+                    { x: mirrorPegX, y: mirrorPegY, z: 0 },
+                    peg.color,
+                    pegMaterial,
+                    peg.type,
+                    peg.size
+                );
+                
+                mirrorPeg.pointValue = peg.pointValue || 300;
+                mirrorPeg.isOrange = peg.isOrange || false;
+                mirrorPeg.isGreen = peg.isGreen || false;
+                mirrorPeg.isPurple = peg.isPurple || false;
+                mirrorPeg.mirrored = true;
+                mirrorPeg.mirrorPair = peg;
+                peg.mirrorPair = mirrorPeg;
+                
+                this.game.pegs.push(mirrorPeg);
+                mirrorShape.addPeg(mirrorPeg, insertionIndex);
+                
+                this.placedObjects.push({
+                    category: 'peg',
+                    type: peg.type,
+                    size: peg.size,
+                    position: { x: mirrorPegX, y: mirrorPegY, z: 0 },
+                    color: peg.color,
+                    rotation: 0,
+                    mirrored: true,
+                    mirrorPairId: 'original'
+                });
+                
+                shape._syncing = false;
+            });
+        }
+    }
+    
+    /**
+     * Add characteristic to shape with mirror sync
+     */
+    addCharacteristicToShapeWithMirror(shape, characteristic, insertionIndex = null) {
+        shape.addCharacteristic(characteristic, insertionIndex);
+        
+        // If shape has a mirror pair, add mirrored characteristic to mirror shape
+        if (shape.mirrorPair && !shape._syncing) {
+            shape._syncing = true;
+            const mirrorShape = shape.mirrorPair;
+            
+            // Create mirror copy of characteristic (async, but don't block)
+            import('../entities/Characteristic.js').then(({ Characteristic }) => {
+                const mirrorCharPos = characteristic.position || { x: 0, y: 0 };
+                const mirrorCharX = -mirrorCharPos.x;
+                const mirrorCharY = mirrorCharPos.y;
+                
+                const bounceType = characteristic.bounceType || 'normal';
+                const mirrorChar = new Characteristic(
+                    this.game.scene,
+                    this.game.physicsWorld,
+                    { x: mirrorCharX, y: mirrorCharY, z: 0 },
+                    characteristic.shape,
+                    characteristic.size,
+                    bounceType
+                );
+                
+                // Mirror rotation (negate the angle) if it exists
+                if (characteristic.rotation !== undefined) {
+                    const mirroredRotation = -characteristic.rotation;
+                    mirrorChar.setRotation(mirroredRotation);
+                }
+                
+                mirrorChar.mirrored = true;
+                mirrorChar.mirrorPair = characteristic;
+                characteristic.mirrorPair = mirrorChar;
+                
+                this.characteristics.push(mirrorChar);
+                this.game.characteristics.push(mirrorChar);
+                mirrorShape.addCharacteristic(mirrorChar, insertionIndex);
+                
+                const toolType = characteristic.shape === 'circle' ? 'round' : 'rect';
+                this.placedObjects.push({
+                    category: 'characteristic',
+                    type: toolType,
+                    shape: characteristic.shape,
+                    position: { x: mirrorCharX, y: mirrorCharY, z: 0 },
+                    size: characteristic.size,
+                    rotation: mirrorChar.rotation || 0,
+                    bounceType: bounceType,
+                    mirrored: true,
+                    mirrorPairId: 'original'
+                });
+                
+                shape._syncing = false;
+            });
+        }
+    }
+    
+    /**
+     * Remove peg from shape with mirror sync
+     */
+    removePegFromShapeWithMirror(shape, peg) {
+        shape.removePeg(peg);
+        
+        // If shape has a mirror pair, remove mirrored peg from mirror shape
+        if (shape.mirrorPair && !shape._syncing && peg.mirrorPair) {
+            shape._syncing = true;
+            const mirrorShape = shape.mirrorPair;
+            const mirrorPeg = peg.mirrorPair;
+            
+            if (mirrorShape.containedPegs.includes(mirrorPeg)) {
+                mirrorShape.removePeg(mirrorPeg);
+            }
+            
+            // Remove mirror peg from game and placed objects
+            if (mirrorPeg.remove) {
+                mirrorPeg.remove();
+            } else {
+                if (mirrorPeg.body && this.game.physicsWorld) {
+                    this.game.physicsWorld.removeBody(mirrorPeg.body);
+                }
+                if (mirrorPeg.mesh) {
+                    this.game.scene.remove(mirrorPeg.mesh);
+                }
+            }
+            
+            const pegIndex = this.game.pegs.indexOf(mirrorPeg);
+            if (pegIndex !== -1) {
+                this.game.pegs.splice(pegIndex, 1);
+            }
+            
+            // Remove from placed objects
+            this.placedObjects = this.placedObjects.filter(obj => {
+                if (obj.category === 'peg' && obj.position && mirrorPeg.body) {
+                    const distance = Math.sqrt(
+                        Math.pow(obj.position.x - mirrorPeg.body.position.x, 2) + 
+                        Math.pow(obj.position.y - mirrorPeg.body.position.y, 2)
+                    );
+                    return distance >= 0.05;
+                }
+                return true;
+            });
+            
+            peg.mirrorPair = null;
+            mirrorPeg.mirrorPair = null;
+            
+            shape._syncing = false;
+        }
+    }
+    
+    /**
+     * Remove characteristic from shape with mirror sync
+     */
+    removeCharacteristicFromShapeWithMirror(shape, characteristic) {
+        shape.removeCharacteristic(characteristic);
+        
+        // If shape has a mirror pair, remove mirrored characteristic from mirror shape
+        if (shape.mirrorPair && !shape._syncing && characteristic.mirrorPair) {
+            shape._syncing = true;
+            const mirrorShape = shape.mirrorPair;
+            const mirrorChar = characteristic.mirrorPair;
+            
+            if (mirrorShape.containedCharacteristics.includes(mirrorChar)) {
+                mirrorShape.removeCharacteristic(mirrorChar);
+            }
+            
+            // Remove mirror characteristic from game and placed objects
+            if (mirrorChar.remove) {
+                mirrorChar.remove();
+            } else {
+                if (mirrorChar.body && this.game.physicsWorld) {
+                    this.game.physicsWorld.removeBody(mirrorChar.body);
+                }
+                if (mirrorChar.mesh) {
+                    this.game.scene.remove(mirrorChar.mesh);
+                }
+            }
+            
+            const charIndex = this.characteristics.indexOf(mirrorChar);
+            if (charIndex !== -1) {
+                this.characteristics.splice(charIndex, 1);
+            }
+            
+            const gameCharIndex = this.game.characteristics.indexOf(mirrorChar);
+            if (gameCharIndex !== -1) {
+                this.game.characteristics.splice(gameCharIndex, 1);
+            }
+            
+            // Remove from placed objects
+            this.placedObjects = this.placedObjects.filter(obj => {
+                if (obj.category === 'characteristic' && obj.position && mirrorChar.position) {
+                    const distance = Math.sqrt(
+                        Math.pow(obj.position.x - mirrorChar.position.x, 2) + 
+                        Math.pow(obj.position.y - mirrorChar.position.y, 2)
+                    );
+                    return distance >= 0.05;
+                }
+                return true;
+            });
+            
+            characteristic.mirrorPair = null;
+            mirrorChar.mirrorPair = null;
+            
+            shape._syncing = false;
+        }
     }
 }
 

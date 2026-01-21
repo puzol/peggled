@@ -162,7 +162,7 @@ export class Game {
                 name: 'Maddam Magna Thicke',
                 power: 'Magnetic Pegs',
                 powerDescription: 'On green peg hit, grants a power for the next shot. Orange, Green, and Purple pegs gain magnetism, pulling the white ball within 1.5 points radius.'
-            }
+            },
         ];
         
         // Character power systems
@@ -195,6 +195,7 @@ export class Game {
         
         // Maddam Magna Thicke power system
         this.magneticActive = false; // Flag for magnetic power
+        
         
         // Perks
         this.luckyClover = new LuckyClover();
@@ -572,6 +573,7 @@ export class Game {
     setupScene() {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x2a2a3e);
+        
     }
 
     setupRenderer() {
@@ -1118,6 +1120,7 @@ export class Game {
         // Check if power is available for this shot BEFORE decrementing
         const hasPower = this.powerTurnsRemaining > 0;
         
+        
         // Check if John's power should be used for this shot (if selectedPower is set from roulette)
         const johnPowerUsed = this.johnPower.handleShot(spawnX, spawnY, spawnZ, targetX, targetY, originalVelocity);
         
@@ -1180,6 +1183,7 @@ export class Game {
             this.powerTurnsRemaining--;
             this.updatePowerTurnsUI();
             this.updatePowerDisplay();
+            
             
             // Disable powers when counter reaches 0
             if (this.powerTurnsRemaining === 0) {
@@ -1341,6 +1345,11 @@ export class Game {
             
             // Check for green peg (power activation) - purple pegs can also be green
             if (peg.isGreen) {
+                console.log('[Game] Green peg hit detected!', {
+                    selectedCharacter: this.selectedCharacter,
+                    characterId: this.selectedCharacter?.id
+                });
+                
                 // Peter the Leprechaun: add 3 turns per green peg hit
                 if (this.selectedCharacter?.id === 'peter') {
                     this.powerTurnsRemaining += 3;
@@ -1365,6 +1374,7 @@ export class Game {
                     this.powerTurnsRemaining += 1;
                     this.updatePowerTurnsUI();
                 }
+                
                 
                 // John the Gunner: trigger roulette immediately when green peg is hit
                 if (this.selectedCharacter?.id === 'john') {
@@ -1391,6 +1401,7 @@ export class Game {
                     this.rocketActive = true; // Activate rocket for next shot
                     this.updatePowerDisplay();
                 }
+                
             }
             
             // Check for free ball
@@ -1456,6 +1467,7 @@ export class Game {
                     this.updatePowerTurnsUI();
                 }
                 
+                
                 // John the Gunner: trigger roulette immediately when green peg is hit
                 if (this.selectedCharacter?.id === 'john') {
                     // Trigger roulette immediately (will pause game and show UI)
@@ -1481,6 +1493,7 @@ export class Game {
                     this.rocketActive = true; // Activate rocket for next shot
                     this.updatePowerDisplay();
                 }
+                
             }
             
             // Check for free ball
@@ -1565,6 +1578,8 @@ export class Game {
     updateTrajectoryGuide() {
         // In editor testing mode, always show trajectory guide (unlimited balls)
         const hasBallsLeft = (this.levelEditor && this.levelEditor.testingMode) || this.ballsRemaining > 0;
+        // Show trajectory guide even when André's power is active (for reference)
+        // Don't hide if André's power is active (user wants to see both the guide and draw)
         if (!this.trajectoryGuide || this.balls.length > 0 || !hasBallsLeft) {
             if (this.trajectoryGuide) {
                 this.trajectoryGuide.visible = false;
@@ -2701,6 +2716,7 @@ export class Game {
         this.roundVec3(ball.body.velocity);
     }
 
+
     handleSpikePegCollision(spike, peg) {
         // Spike hit a peg - treat it like a ball hit
         // Check if this is a new hit
@@ -2974,11 +2990,7 @@ export class Game {
                             this.maddamPower.onGreenPegHit(peg);
                             // Don't create magnet visuals yet - wait until shot ends and player is ready
                         }
-                        if (this.selectedCharacter?.id === 'buzz') {
-                            this.buzzPower.onGreenPegHit(peg);
-                            this.rocketActive = true; // Activate rocket for next shot
-                            this.updatePowerDisplay();
-                        }
+                        
                     }
                     
                     // Check for orange peg (goal progress) - only on first hit by ANY ball
@@ -3469,6 +3481,11 @@ export class Game {
             // Update all balls
             // Get current time once for all ball updates (in seconds)
             const currentTimeSeconds = performance.now() / 1000;
+            
+            // Update all balls
+            this.balls.forEach(ball => {
+                ball.update();
+            });
             
             // Update spikes and handle quill shot
             if (this.spikes) {
@@ -4173,6 +4190,7 @@ export class Game {
             this.spikes.forEach(spike => spike.remove());
             this.spikes = [];
         }
+        
         
         // Clean up Three.js resources
         if (this.renderer) {

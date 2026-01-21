@@ -264,6 +264,11 @@ export class ArkanoidPower {
             const bounceDirX = Math.sin(bounceAngle);
             const bounceDirY = Math.cos(bounceAngle); // Always bounce up
             
+            // Play pad bounce sound (roulette sound pitched down)
+            if (this.game.audioManager) {
+                this.game.audioManager.playSound('pegRoulette', { volume: 0.6, pitch: 0.5 });
+            }
+            
             // On first bounce, remove gravity and start timer countdown
             if (!this.padBounced) {
                 this.padBounced = true;

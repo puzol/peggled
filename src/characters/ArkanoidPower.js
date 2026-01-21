@@ -15,10 +15,10 @@ export class ArkanoidPower {
         this.padActive = false;
         this.padBounced = false; // Track if ball has bounced off pad
         this.timerActive = false;
-        this.timerSeconds = 10;
+        this.timerSeconds = 20;
         this.timerInterval = null;
         this.timerUI = null;
-        this.targetSpeed = 8; // Target speed - updated on pad bounces, maintained on peg bounces
+        this.targetSpeed = 6; // Target speed - updated on pad bounces, maintained on peg bounces
         this.bucketHidden = false;
         this.ballBouncedBeforeOut = false; // Track if ball bounced before going out
         this.ballsNeedingSpeedCorrection = new Set(); // Track balls that need speed correction next frame
@@ -41,7 +41,7 @@ export class ArkanoidPower {
         this.padActive = true;
         this.padBounced = false;
         this.ballBouncedBeforeOut = false;
-        this.targetSpeed = 8; // Reset target speed
+        this.targetSpeed = 6; // Reset target speed
         this.previousBallCount = 0;
         
         // Hide bucket
@@ -52,7 +52,7 @@ export class ArkanoidPower {
         
         // Create timer UI immediately (frozen at 10 seconds until first bounce)
         this.createTimerUI();
-        this.timerSeconds = 10;
+        this.timerSeconds = 15;
         if (this.timerUI) {
             this.timerUI.textContent = this.timerSeconds;
         }
@@ -271,8 +271,8 @@ export class ArkanoidPower {
                 // Timer UI already exists, just start the countdown
                 this.startTimer();
                 
-                // Set target speed to 8 on first bounce
-                this.targetSpeed = 8;
+                // Set target speed to 6 on first bounce
+                this.targetSpeed = 6;
                 
                 // Set velocity to target speed on first bounce
                 ball.body.velocity.set(
@@ -281,8 +281,8 @@ export class ArkanoidPower {
                     0
                 );
             } else {
-                // Subsequent bounces: increase target speed by 1
-                this.targetSpeed += 1;
+                // Subsequent bounces: increase target speed by 0.5
+                this.targetSpeed += 0.5;
                 
                 // Apply bounce direction with target speed
                 ball.body.velocity.set(
@@ -323,7 +323,7 @@ export class ArkanoidPower {
         if (this.timerActive) return;
         
         this.timerActive = true;
-        this.timerSeconds = 10;
+        this.timerSeconds = 20;
         
         // Update UI immediately
         if (this.timerUI) {
@@ -430,7 +430,7 @@ export class ArkanoidPower {
         this.padActive = false;
         this.padBounced = false;
         this.ballBouncedBeforeOut = false;
-        this.targetSpeed = 8;
+        this.targetSpeed = 6;
         this.previousBallCount = 0;
         this.ballsNeedingSpeedCorrection.clear();
         
@@ -617,7 +617,7 @@ export class ArkanoidPower {
         this.padActive = false;
         this.padBounced = false;
         this.ballBouncedBeforeOut = false;
-        this.targetSpeed = 8;
+        this.targetSpeed = 6;
         this.bucketHidden = false;
         this.previousBallCount = 0;
         this.ballsNeedingSpeedCorrection.clear();

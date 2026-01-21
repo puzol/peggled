@@ -989,6 +989,14 @@ export class Game {
             return;
         }
         
+        // Arkanoid power: activate pad when shot is ready if queued (green peg hit while power was active)
+        // Check if we have power turns (from the green peg that was hit)
+        if (this.arkanoidPower && this.arkanoidPower.queuedActivation && this.powerTurnsRemaining > 0) {
+            this.arkanoidPower.queuedActivation = false;
+            this.arkanoidActive = true;
+            this.arkanoidPower.activatePad();
+        }
+        
         // Get target position - use test aim angle if set, otherwise use mouse position
         let targetX, targetY;
         let mouseX, mouseY, normalizedX, normalizedY;
@@ -1177,6 +1185,14 @@ export class Game {
                 this.updatePowerDisplay();
             }
             
+            // Arkanoid power: activate pad on next shot if green peg was hit while power was already active
+            // Only activate if we have power turns (meaning green peg was hit in previous shot)
+            if (this.arkanoidPower && this.arkanoidPower.queuedActivation && hasPower) {
+                this.arkanoidPower.queuedActivation = false;
+                this.arkanoidActive = true;
+                this.arkanoidPower.activatePad();
+            }
+            
             // Consume quill shot flag after spawnBall (but keep power turns active for next shot if counter > 1)
             // Only consume if we actually used quill shot AND this was the last power turn
             if (isQuillShot && this.powerTurnsRemaining <= 1) {
@@ -1336,6 +1352,19 @@ export class Game {
             if (this.audioManager) {
                 this.audioManager.playPegHit();
             }
+            
+            // Arkanoid power: remove pegs immediately when hit by explosion (starts when pad appears)
+            const isArkanoidActive = this.arkanoidPower && this.arkanoidActive && this.arkanoidPower.padActive;
+            if (isArkanoidActive) {
+                const pegIndex = this.pegs.indexOf(peg);
+                if (pegIndex !== -1) {
+                    peg.remove();
+                    this.pegs.splice(pegIndex, 1);
+                    // Don't add to explosionHitPegs since it's already removed
+                    return; // Skip to next peg
+                }
+            }
+            
             explosionHitPegs.push(peg); // Track for removal
             
             // Add score for purple peg (flat 2000 points, no multiplier)
@@ -1439,6 +1468,19 @@ export class Game {
             if (this.audioManager) {
                 this.audioManager.playPegHit();
             }
+            
+            // Arkanoid power: remove pegs immediately when hit by explosion (starts when pad appears)
+            const isArkanoidActive = this.arkanoidPower && this.arkanoidActive && this.arkanoidPower.padActive;
+            if (isArkanoidActive) {
+                const pegIndex = this.pegs.indexOf(peg);
+                if (pegIndex !== -1) {
+                    peg.remove();
+                    this.pegs.splice(pegIndex, 1);
+                    // Don't add to explosionHitPegs since it's already removed
+                    return; // Skip to next peg
+                }
+            }
+            
             explosionHitPegs.push(peg); // Track for removal
             
             // Add score (now with purple peg multiplier if purple peg was hit)
@@ -2947,7 +2989,7 @@ export class Game {
                 // Clamp velocity after peg collision
                 this.clampBallVelocity(ball);
                 
-                // Arkanoid power: increase ball speed on peg bounce
+                // Arkanoid power: increase ball speed on peg bounce (only after pad bounce)
                 if (this.arkanoidPower && this.arkanoidActive && this.arkanoidPower.padBounced) {
                     this.arkanoidPower.onPegBounce(ball);
                 }
@@ -2961,6 +3003,22 @@ export class Game {
             if (isNewHit) {
                 try {
                     peg.onHit();
+                    
+                    // Arkanoid power: remove pegs immediately when hit (starts when pad appears)
+                    if (this.arkanoidPower && this.arkanoidActive && this.arkanoidPower.padActive) {
+                        const pegIndex = this.pegs.indexOf(peg);
+                        if (pegIndex !== -1) {
+                            peg.remove();
+                            this.pegs.splice(pegIndex, 1);
+                            // Remove from ball's hitPegs array if present
+                            const ballPegIndex = ball.hitPegs.indexOf(peg);
+                            if (ballPegIndex !== -1) {
+                                ball.hitPegs.splice(ballPegIndex, 1);
+                            }
+                            // Skip rest of peg hit logic since peg is removed
+                            return;
+                        }
+                    }
                     
                     // Play peg hit sound
                     if (this.audioManager) {
@@ -3460,9 +3518,21 @@ export class Game {
             }
             
             // Round ball positions and velocities to 3 decimals for determinism
+            // Also ensure collisionResponse is always enabled (safety check for collision bugs)
             this.balls.forEach(ball => {
                 this.roundVec3(ball.body.position);
                 this.roundVec3(ball.body.velocity);
+                
+                // Safety check: Ensure collisionResponse is always enabled
+                // This prevents the ball from phasing through objects after collisions
+                if (ball.body && ball.body.collisionResponse === false) {
+                    ball.body.collisionResponse = true;
+                }
+                
+                // Ensure body is awake (not sleeping)
+                if (ball.body && ball.body.sleepState !== 0) {
+                    ball.body.wakeUp();
+                }
             });
             
             // Round bomb positions and velocities for determinism
@@ -3736,7 +3806,9 @@ export class Game {
                 ball.update();
                 
                 // Check if bomb-ball's explosion pegs should be removed (5 second rule)
-                if (ball.explosionHitPegs && ball.explosionHitPegs.length > 0 && ball.explosionTime) {
+                // Disabled while Arkanoid power is active (pegs are removed immediately when pad appears)
+                const isArkanoidActive = this.arkanoidPower && this.arkanoidActive && this.arkanoidPower.padActive;
+                if (ball.explosionHitPegs && ball.explosionHitPegs.length > 0 && ball.explosionTime && !isArkanoidActive) {
                     const timeSinceExplosion = currentTimeSeconds - ball.explosionTime;
                     if (timeSinceExplosion >= 5.0) {
                         // Remove pegs hit by explosion after 5 seconds
@@ -3929,6 +4001,14 @@ export class Game {
                 } else {
                     // Reset flag when conditions not met
                     this.maddamPower.magnetismActivatedThisShot = false;
+                }
+                
+                // Arkanoid power: activate pad when shot is ready if queued (green peg hit while power was active)
+                // Only activate if we have power turns (from the green peg that was hit)
+                if (this.arkanoidPower && this.arkanoidPower.queuedActivation && this.powerTurnsRemaining > 0) {
+                    this.arkanoidPower.queuedActivation = false;
+                    this.arkanoidActive = true;
+                    this.arkanoidPower.activatePad();
                 }
             }
             

@@ -15,21 +15,32 @@ export class ArkanoidPower {
         this.padActive = false;
         this.padBounced = false; // Track if ball has bounced off pad
         this.timerActive = false;
-        this.timerSeconds = 20;
+        this.timerSeconds = 5; // Default timer duration (can be changed in activatePad)
         this.timerInterval = null;
         this.timerUI = null;
         this.targetSpeed = 6; // Target speed - updated on pad bounces, maintained on peg bounces
         this.bucketHidden = false;
         this.ballBouncedBeforeOut = false; // Track if ball bounced before going out
         this.ballsNeedingSpeedCorrection = new Set(); // Track balls that need speed correction next frame
+        this.queuedActivation = false; // Track if pad should activate on next shot (green peg hit while already active)
     }
 
     /**
      * Handle green peg hit - activate pad immediately (like Spikey's spikes)
+     * If pad is already active in the same shot, queue activation for next shot
      */
     onGreenPegHit(peg) {
-        // Activate pad immediately when green peg is hit
-        this.activatePad();
+        if (this.padActive) {
+            // Pad is already active - check if balls are still in play (same shot)
+            // Only queue if this green peg was hit in the same shot while power was active
+            if (this.game.balls && this.game.balls.length > 0) {
+                // Balls are active = same shot, so queue activation for next shot
+                this.queuedActivation = true;
+            }
+        } else {
+            // Pad is not active - activate immediately
+            this.activatePad();
+        }
     }
 
     /**
@@ -43,6 +54,7 @@ export class ArkanoidPower {
         this.ballBouncedBeforeOut = false;
         this.targetSpeed = 6; // Reset target speed
         this.previousBallCount = 0;
+        this.queuedActivation = false; // Clear queue when pad activates
         
         // Hide bucket
         this.hideBucket();
@@ -52,9 +64,44 @@ export class ArkanoidPower {
         
         // Create timer UI immediately (frozen at 10 seconds until first bounce)
         this.createTimerUI();
-        this.timerSeconds = 15;
+        this.timerSeconds = 10;
         if (this.timerUI) {
             this.timerUI.textContent = this.timerSeconds;
+        }
+        
+        // Remove all pegs that are waiting for 5-second timer (explosionHitPegs)
+        // This clears any pegs that were hit by explosions but haven't been removed yet
+        if (this.game.balls) {
+            this.game.balls.forEach(ball => {
+                if (ball.explosionHitPegs && ball.explosionHitPegs.length > 0) {
+                    ball.explosionHitPegs.forEach(peg => {
+                        const pegIndex = this.game.pegs.indexOf(peg);
+                        if (pegIndex !== -1) {
+                            peg.remove();
+                            this.game.pegs.splice(pegIndex, 1);
+                        }
+                    });
+                    // Clear the array
+                    ball.explosionHitPegs = [];
+                }
+            });
+        }
+        
+        // Also check bombs
+        if (this.game.bombs) {
+            this.game.bombs.forEach(bomb => {
+                if (bomb.explosionHitPegs && bomb.explosionHitPegs.length > 0) {
+                    bomb.explosionHitPegs.forEach(peg => {
+                        const pegIndex = this.game.pegs.indexOf(peg);
+                        if (pegIndex !== -1) {
+                            peg.remove();
+                            this.game.pegs.splice(pegIndex, 1);
+                        }
+                    });
+                    // Clear the array
+                    bomb.explosionHitPegs = [];
+                }
+            });
         }
     }
 
@@ -289,6 +336,10 @@ export class ArkanoidPower {
                 // Subsequent bounces: increase target speed by 0.5
                 this.targetSpeed += 0.5;
                 
+                // Clamp target speed to 16 to prevent tunneling (increased from maxReboundSpeed)
+                const maxSpeed = 16;
+                this.targetSpeed = Math.min(this.targetSpeed, maxSpeed);
+                
                 // Apply bounce direction with target speed
                 ball.body.velocity.set(
                     bounceDirX * this.targetSpeed,
@@ -321,14 +372,15 @@ export class ArkanoidPower {
     }
 
     /**
-     * Start 10-second timer countdown with audio cues
+     * Start timer countdown with audio cues
      * Timer UI should already exist (created when pad appears)
+     * Uses the current timerSeconds value (set in activatePad)
      */
     startTimer() {
         if (this.timerActive) return;
         
         this.timerActive = true;
-        this.timerSeconds = 20;
+        // Don't reset timerSeconds - use the value already set in activatePad
         
         // Update UI immediately
         if (this.timerUI) {
@@ -438,6 +490,7 @@ export class ArkanoidPower {
         this.targetSpeed = 6;
         this.previousBallCount = 0;
         this.ballsNeedingSpeedCorrection.clear();
+        this.queuedActivation = false;
         
         // Reset arkanoidActive flag in Game.js
         if (this.game) {
@@ -495,6 +548,10 @@ export class ArkanoidPower {
      */
     onPegBounce(ball) {
         if (this.padActive && this.padBounced && ball && ball.body) {
+            // Ensure target speed doesn't exceed 16 (increased from maxReboundSpeed)
+            const maxSpeed = 16;
+            this.targetSpeed = Math.min(this.targetSpeed, maxSpeed);
+            
             // Get current velocity
             const currentVel = ball.body.velocity;
             const currentSpeed = Math.sqrt(currentVel.x * currentVel.x + currentVel.y * currentVel.y);
@@ -576,6 +633,17 @@ export class ArkanoidPower {
         // Counteract gravity and maintain target speed for balls with noGravity flag
         this.game.balls.forEach(ball => {
             if (ball.noGravity && ball.body && this.padBounced) {
+                // Safety check: Ensure collisionResponse is always enabled
+                // This prevents the ball from phasing through objects
+                if (ball.body.collisionResponse === false) {
+                    ball.body.collisionResponse = true;
+                }
+                
+                // Ensure body is awake (not sleeping)
+                if (ball.body.sleepState !== 0) {
+                    ball.body.wakeUp();
+                }
+                
                 const currentVel = ball.body.velocity;
                 
                 // Counteract gravity
@@ -626,5 +694,7 @@ export class ArkanoidPower {
         this.bucketHidden = false;
         this.previousBallCount = 0;
         this.ballsNeedingSpeedCorrection.clear();
+        this.queuedActivation = false;
+        this.queuedActivation = false;
     }
 }

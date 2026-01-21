@@ -168,7 +168,7 @@ export class Game {
                 id: 'arkanoid',
                 name: 'Arkanoid',
                 power: 'Brick Breaker',
-                powerDescription: 'On green peg hit, bucket drops and a paddle rises. Bounce the ball off the paddle - first bounce removes gravity for 5 seconds!'
+                powerDescription: 'On green peg hit, bucket drops and a paddle rises. Bounce the ball off the paddle - first bounce removes gravity for 10 seconds!'
             }
         ];
         

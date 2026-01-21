@@ -989,14 +989,6 @@ export class Game {
             return;
         }
         
-        // Arkanoid power: activate pad when shot is ready if queued (green peg hit while power was active)
-        // Check if we have power turns (from the green peg that was hit)
-        if (this.arkanoidPower && this.arkanoidPower.queuedActivation && this.powerTurnsRemaining > 0) {
-            this.arkanoidPower.queuedActivation = false;
-            this.arkanoidActive = true;
-            this.arkanoidPower.activatePad();
-        }
-        
         // Get target position - use test aim angle if set, otherwise use mouse position
         let targetX, targetY;
         let mouseX, mouseY, normalizedX, normalizedY;
@@ -1139,6 +1131,7 @@ export class Game {
         // Check if power is available for this shot BEFORE decrementing
         const hasPower = this.powerTurnsRemaining > 0;
         
+        // Arkanoid power: no special handling needed on shot - pad activates on green peg hit
         
         // Check if John's power should be used for this shot (if selectedPower is set from roulette)
         const johnPowerUsed = this.johnPower.handleShot(spawnX, spawnY, spawnZ, targetX, targetY, originalVelocity);
@@ -1354,7 +1347,8 @@ export class Game {
             }
             
             // Arkanoid power: remove pegs immediately when hit by explosion (starts when pad appears)
-            const isArkanoidActive = this.arkanoidPower && this.arkanoidActive && this.arkanoidPower.padActive;
+            // Arkanoid power: remove pegs immediately when hit by explosion (if auto-remove is enabled)
+            const isArkanoidActive = this.arkanoidPower && this.arkanoidActive && this.arkanoidPower.padActive && this.arkanoidPower.autoRemovePegs;
             if (isArkanoidActive) {
                 const pegIndex = this.pegs.indexOf(peg);
                 if (pegIndex !== -1) {
@@ -1412,8 +1406,29 @@ export class Game {
                     this.updatePowerTurnsUI();
                 } else {
                     // All other characters: add 1 turn per green peg hit
-                    this.powerTurnsRemaining += 1;
-                    this.updatePowerTurnsUI();
+                    // BUT: For Arkanoid, call onGreenPegHit FIRST, then check if pad was already active
+                    if (this.selectedCharacter?.id === 'arkanoid' && this.arkanoidPower) {
+                        // Store pad state BEFORE calling onGreenPegHit
+                        const wasPadActive = this.arkanoidPower.padActive;
+                        console.log('[Arkanoid] Green peg hit - pad state before onGreenPegHit:', wasPadActive);
+                        
+                        // Call onGreenPegHit first - this will activate pad if not active, or extend timer if already active
+                        this.arkanoidPower.onGreenPegHit(peg);
+                        this.arkanoidActive = true;
+                        this.updatePowerDisplay();
+                        
+                        // Only increment power counter if pad was NOT already active (first green peg)
+                        if (!wasPadActive) {
+                            console.log('[Arkanoid] First green peg - incrementing power counter');
+                            this.powerTurnsRemaining += 1;
+                            this.updatePowerTurnsUI();
+                        } else {
+                            console.log('[Arkanoid] Second green peg - NOT incrementing power counter (timer extended instead)');
+                        }
+                    } else {
+                        this.powerTurnsRemaining += 1;
+                        this.updatePowerTurnsUI();
+                    }
                 }
                 
                 
@@ -1443,12 +1458,8 @@ export class Game {
                     this.updatePowerDisplay();
                 }
                 
-                // Arkanoid: activate pad power immediately (like Spikey's spikes)
-                if (this.selectedCharacter?.id === 'arkanoid') {
-                    this.arkanoidActive = true; // Set flag
-                    this.arkanoidPower.onGreenPegHit(peg); // This will activate the pad immediately
-                    this.updatePowerDisplay();
-                }
+                // Arkanoid: pad activation is handled in the power counter increment section above
+                // (onGreenPegHit is called there to check pad state before incrementing)
                 
             }
             
@@ -1470,7 +1481,8 @@ export class Game {
             }
             
             // Arkanoid power: remove pegs immediately when hit by explosion (starts when pad appears)
-            const isArkanoidActive = this.arkanoidPower && this.arkanoidActive && this.arkanoidPower.padActive;
+            // Arkanoid power: remove pegs immediately when hit by explosion (if auto-remove is enabled)
+            const isArkanoidActive = this.arkanoidPower && this.arkanoidActive && this.arkanoidPower.padActive && this.arkanoidPower.autoRemovePegs;
             if (isArkanoidActive) {
                 const pegIndex = this.pegs.indexOf(peg);
                 if (pegIndex !== -1) {
@@ -1524,8 +1536,29 @@ export class Game {
                     this.updatePowerTurnsUI();
                 } else {
                     // All other characters: add 1 turn per green peg hit
-                    this.powerTurnsRemaining += 1;
-                    this.updatePowerTurnsUI();
+                    // BUT: For Arkanoid, call onGreenPegHit FIRST, then check if pad was already active
+                    if (this.selectedCharacter?.id === 'arkanoid' && this.arkanoidPower) {
+                        // Store pad state BEFORE calling onGreenPegHit
+                        const wasPadActive = this.arkanoidPower.padActive;
+                        console.log('[Arkanoid] Green peg hit - pad state before onGreenPegHit:', wasPadActive);
+                        
+                        // Call onGreenPegHit first - this will activate pad if not active, or extend timer if already active
+                        this.arkanoidPower.onGreenPegHit(peg);
+                        this.arkanoidActive = true;
+                        this.updatePowerDisplay();
+                        
+                        // Only increment power counter if pad was NOT already active (first green peg)
+                        if (!wasPadActive) {
+                            console.log('[Arkanoid] First green peg - incrementing power counter');
+                            this.powerTurnsRemaining += 1;
+                            this.updatePowerTurnsUI();
+                        } else {
+                            console.log('[Arkanoid] Second green peg - NOT incrementing power counter (timer extended instead)');
+                        }
+                    } else {
+                        this.powerTurnsRemaining += 1;
+                        this.updatePowerTurnsUI();
+                    }
                 }
                 
                 
@@ -1555,12 +1588,8 @@ export class Game {
                     this.updatePowerDisplay();
                 }
                 
-                // Arkanoid: activate pad power immediately (like Spikey's spikes)
-                if (this.selectedCharacter?.id === 'arkanoid') {
-                    this.arkanoidActive = true; // Set flag
-                    this.arkanoidPower.onGreenPegHit(peg); // This will activate the pad immediately
-                    this.updatePowerDisplay();
-                }
+                // Arkanoid: pad activation is handled in the power counter increment section above
+                // (onGreenPegHit is called there to check pad state before incrementing)
                 
             }
             
@@ -2857,8 +2886,25 @@ export class Game {
                 this.updatePowerTurnsUI();
             } else {
                 // All other characters: add 1 turn per green peg hit
-                this.powerTurnsRemaining += 1;
-                this.updatePowerTurnsUI();
+                // BUT: For Arkanoid, call onGreenPegHit FIRST, then check if pad was already active
+                if (this.selectedCharacter?.id === 'arkanoid' && this.arkanoidPower) {
+                    // Store pad state before calling onGreenPegHit
+                    const wasPadActive = this.arkanoidPower.padActive;
+                    // Call onGreenPegHit first - this will activate pad if not active, or extend timer if already active
+                    this.arkanoidPower.onGreenPegHit(peg);
+                    this.arkanoidActive = true;
+                    this.updatePowerDisplay();
+                    
+                    // Only increment power counter if pad was NOT already active (first green peg)
+                    if (!wasPadActive) {
+                        this.powerTurnsRemaining += 1;
+                        this.updatePowerTurnsUI();
+                    }
+                    // If pad was already active, don't increment (2nd green peg - timer was extended in onGreenPegHit)
+                } else {
+                    this.powerTurnsRemaining += 1;
+                    this.updatePowerTurnsUI();
+                }
             }
             
             // John the Gunner: trigger roulette immediately when green peg is hit
@@ -3004,8 +3050,13 @@ export class Game {
                 try {
                     peg.onHit();
                     
-                    // Arkanoid power: remove pegs immediately when hit (starts when pad appears)
-                    if (this.arkanoidPower && this.arkanoidActive && this.arkanoidPower.padActive) {
+                    // Arkanoid power: remove pegs immediately when hit (if auto-remove is enabled)
+                    if (this.arkanoidPower && this.arkanoidPower.padActive && this.arkanoidPower.autoRemovePegs) {
+                        // Check both arkanoidActive flag and padActive to ensure auto-remove works
+                        if (!this.arkanoidActive) {
+                            // Ensure flag is set if pad is active
+                            this.arkanoidActive = true;
+                        }
                         const pegIndex = this.pegs.indexOf(peg);
                         if (pegIndex !== -1) {
                             peg.remove();
@@ -3044,12 +3095,29 @@ export class Game {
                             this.updatePowerTurnsUI();
                         } else if (this.selectedCharacter?.id === 'maddam') {
                             // Maddam Magna Thicke: add 1 turn per green peg hit
-                            this.powerTurnsRemaining += 1;
-                            this.updatePowerTurnsUI();
+                    this.powerTurnsRemaining += 1;
+                    this.updatePowerTurnsUI();
                         } else {
                             // All other characters: add 1 turn per green peg hit
-                            this.powerTurnsRemaining += 1;
-                            this.updatePowerTurnsUI();
+                            // BUT: For Arkanoid, call onGreenPegHit FIRST, then check if pad was already active
+                            if (this.selectedCharacter?.id === 'arkanoid' && this.arkanoidPower) {
+                                // Store pad state before calling onGreenPegHit
+                                const wasPadActive = this.arkanoidPower.padActive;
+                                // Call onGreenPegHit first - this will activate pad if not active, or extend timer if already active
+                                this.arkanoidPower.onGreenPegHit(peg);
+                                this.arkanoidActive = true;
+                                this.updatePowerDisplay();
+                                
+                                // Only increment power counter if pad was NOT already active (first green peg)
+                                if (!wasPadActive) {
+                                    this.powerTurnsRemaining += 1;
+                                    this.updatePowerTurnsUI();
+                                }
+                                // If pad was already active, don't increment (2nd green peg - timer was extended in onGreenPegHit)
+                            } else {
+                                this.powerTurnsRemaining += 1;
+                                this.updatePowerTurnsUI();
+                            }
                         }
                         
                         // John the Gunner: trigger roulette immediately when green peg is hit
@@ -3085,11 +3153,9 @@ export class Game {
                             this.magneticActive = true;
                             this.maddamPower.onGreenPegHit(peg);
                             // Don't create magnet visuals yet - wait until shot ends and player is ready
-                        } else if (this.selectedCharacter?.id === 'arkanoid') {
-                            this.arkanoidPower.onGreenPegHit(peg);
-                            this.arkanoidActive = true; // Activate arkanoid for next shot
-                            this.updatePowerDisplay();
                         }
+                        // Arkanoid: pad activation is handled in the power counter increment section above
+                        // (onGreenPegHit is called there to check pad state before incrementing)
                         
                     }
                     
@@ -3792,25 +3858,27 @@ export class Game {
             // Handle Arkanoid pad updates
             if (this.selectedCharacter?.id === 'arkanoid') {
                 const deltaTimeSeconds = deltaTime / 1000; // Convert to seconds
-                if (this.arkanoidPower && this.arkanoidActive) {
+                // Update pad if it's active (check padActive, not just arkanoidActive flag)
+                if (this.arkanoidPower && this.arkanoidPower.padActive) {
                     this.arkanoidPower.update(deltaTimeSeconds);
                 }
                 
                 // Check if Arkanoid pad should be deactivated when ball goes out of play
-                if (this.arkanoidPower && this.arkanoidActive && this.balls.length === 0) {
-                    this.arkanoidPower.deactivatePad();
-                }
+                // NEW APPROACH: Don't deactivate if we have power turns - let pad continue to next shot
+                // The update() method in ArkanoidPower.js handles this logic now
             }
             
             this.balls.forEach(ball => {
                 ball.update();
                 
-                // Check if bomb-ball's explosion pegs should be removed (5 second rule)
-                // Disabled while Arkanoid power is active (pegs are removed immediately when pad appears)
+                // Check if Arkanoid power is active (used for timer duration adjustments)
                 const isArkanoidActive = this.arkanoidPower && this.arkanoidActive && this.arkanoidPower.padActive;
-                if (ball.explosionHitPegs && ball.explosionHitPegs.length > 0 && ball.explosionTime && !isArkanoidActive) {
+                
+                // Check if bomb-ball's explosion pegs should be removed (5 second rule, or 2 seconds if Arkanoid active)
+                const explosionTimerDuration = isArkanoidActive ? 2.0 : 5.0;
+                if (ball.explosionHitPegs && ball.explosionHitPegs.length > 0 && ball.explosionTime) {
                     const timeSinceExplosion = currentTimeSeconds - ball.explosionTime;
-                    if (timeSinceExplosion >= 5.0) {
+                    if (timeSinceExplosion >= explosionTimerDuration) {
                         // Remove pegs hit by explosion after 5 seconds
                         ball.explosionHitPegs.forEach(peg => {
                             const pegIndex = this.pegs.indexOf(peg);
@@ -3934,9 +4002,10 @@ export class Game {
                 // Check each condition (only if enough pegs have been hit)
                 const patternCheckPassed = hasEnoughPegsHit && stuckPatternDetected && ball.stuckPatternCount >= 2;
                 const velocityCheckPassed = hasEnoughPegsHit && timeSinceHighVelocity >= 1.0;
-                // 5-second check: If ball hasn't hit a NEW peg in 5 seconds, it's stuck
-                // This only resets on new peg hits, so bouncing between already-hit pegs for 5 seconds triggers removal
-                const spawnCheckPassed = timeSinceSpawn >= 5.0;
+                // 5-second check: If ball hasn't hit a NEW peg in 5 seconds, it's stuck (or 2 seconds if Arkanoid active)
+                // This only resets on new peg hits, so bouncing between already-hit pegs triggers removal
+                const stuckTimerDuration = isArkanoidActive ? 0.2 : 5.0;
+                const spawnCheckPassed = timeSinceSpawn >= stuckTimerDuration;
                 
                 // Stuck check logging removed - checks run silently
                 
@@ -4003,13 +4072,8 @@ export class Game {
                     this.maddamPower.magnetismActivatedThisShot = false;
                 }
                 
-                // Arkanoid power: activate pad when shot is ready if queued (green peg hit while power was active)
-                // Only activate if we have power turns (from the green peg that was hit)
-                if (this.arkanoidPower && this.arkanoidPower.queuedActivation && this.powerTurnsRemaining > 0) {
-                    this.arkanoidPower.queuedActivation = false;
-                    this.arkanoidActive = true;
-                    this.arkanoidPower.activatePad();
-                }
+                // Arkanoid power: pad activation moved to executeShot (when shot is taken)
+                // This prevents the pad from being hidden before the shot is fired
             }
             
             // Collision detection is already called immediately after physics update (above)

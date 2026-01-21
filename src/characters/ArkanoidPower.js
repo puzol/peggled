@@ -15,7 +15,7 @@ export class ArkanoidPower {
         this.padActive = false;
         this.padBounced = false; // Track if ball has bounced off pad
         this.timerActive = false;
-        this.timerSeconds = 5; // Default timer duration (can be changed in activatePad)
+        this.timerSeconds = 10; // Default timer duration (can be changed in activatePad)
         this.timerInterval = null;
         this.timerUI = null;
         this.targetSpeed = 6; // Target speed - updated on pad bounces, maintained on peg bounces
@@ -23,6 +23,7 @@ export class ArkanoidPower {
         this.ballBouncedBeforeOut = false; // Track if ball bounced before going out
         this.ballsNeedingSpeedCorrection = new Set(); // Track balls that need speed correction next frame
         this.queuedActivation = false; // Track if pad should activate on next shot (green peg hit while already active)
+        this.greenPegHitWhilePadActive = false; // Simple flag: was a green peg hit while pad was active?
     }
 
     /**
@@ -30,16 +31,37 @@ export class ArkanoidPower {
      * If pad is already active in the same shot, queue activation for next shot
      */
     onGreenPegHit(peg) {
-        if (this.padActive) {
-            // Pad is already active - check if balls are still in play (same shot)
-            // Only queue if this green peg was hit in the same shot while power was active
-            if (this.game.balls && this.game.balls.length > 0) {
-                // Balls are active = same shot, so queue activation for next shot
-                this.queuedActivation = true;
-            }
-        } else {
+        console.log('[Arkanoid] onGreenPegHit called', {
+            padActive: this.padActive,
+            timerActive: this.timerActive,
+            timerSeconds: this.timerSeconds
+        });
+        
+        if (!this.padActive) {
             // Pad is not active - activate immediately
+            console.log('[Arkanoid] Activating pad immediately (not active)');
             this.activatePad();
+        } else {
+            // Pad is already active - second green peg hit!
+            // Add base timer value to current timer
+            const baseTimerValue = 10; // Base timer duration (matches default timerSeconds)
+            if (this.timerActive) {
+                // Timer is running - add time to it
+                this.timerSeconds += baseTimerValue;
+                console.log('[Arkanoid] Second green peg hit - added', baseTimerValue, 'seconds to timer. New time:', this.timerSeconds);
+                // Update UI
+                if (this.timerUI) {
+                    this.timerUI.textContent = this.timerSeconds;
+                }
+            } else {
+                // Timer not started yet - will use this value when timer starts
+                this.timerSeconds += baseTimerValue;
+                console.log('[Arkanoid] Second green peg hit - timer not active yet, added', baseTimerValue, 'seconds. Will start with:', this.timerSeconds);
+                // Update UI
+                if (this.timerUI) {
+                    this.timerUI.textContent = this.timerSeconds;
+                }
+            }
         }
     }
 
@@ -47,7 +69,15 @@ export class ArkanoidPower {
      * Activate the pad (called immediately on green peg hit)
      */
     activatePad() {
-        if (this.padActive) return;
+        console.log('[Arkanoid] activatePad called', {
+            padActive: this.padActive,
+            queuedActivation: this.queuedActivation
+        });
+        
+        if (this.padActive) {
+            console.log('[Arkanoid] Pad already active, skipping activation');
+            return;
+        }
         
         this.padActive = true;
         this.padBounced = false;
@@ -55,6 +85,9 @@ export class ArkanoidPower {
         this.targetSpeed = 6; // Reset target speed
         this.previousBallCount = 0;
         this.queuedActivation = false; // Clear queue when pad activates
+        // Don't clear greenPegHitWhilePadActive - it will be used on next shot
+        
+        console.log('[Arkanoid] Pad activation started');
         
         // Hide bucket
         this.hideBucket();
@@ -334,10 +367,10 @@ export class ArkanoidPower {
                 );
             } else {
                 // Subsequent bounces: increase target speed by 0.5
-                this.targetSpeed += 0.5;
+                this.targetSpeed += 0.75;
                 
                 // Clamp target speed to 16 to prevent tunneling (increased from maxReboundSpeed)
-                const maxSpeed = 16;
+                const maxSpeed = 12;
                 this.targetSpeed = Math.min(this.targetSpeed, maxSpeed);
                 
                 // Apply bounce direction with target speed
@@ -465,7 +498,14 @@ export class ArkanoidPower {
      * Deactivate pad and restore bucket
      */
     deactivatePad() {
-        if (!this.padActive) return;
+        console.log('[Arkanoid] deactivatePad called', {
+            padActive: this.padActive
+        });
+        
+        if (!this.padActive) {
+            console.log('[Arkanoid] Pad not active, skipping deactivation');
+            return;
+        }
         
         // Restore gravity to all balls
         this.game.balls.forEach(ball => {
@@ -483,7 +523,8 @@ export class ArkanoidPower {
         // Show bucket
         this.showBucket();
         
-        // Reset state
+        // Reset state (but preserve greenPegHitWhilePadActive flag)
+        const preserveFlag = this.greenPegHitWhilePadActive;
         this.padActive = false;
         this.padBounced = false;
         this.ballBouncedBeforeOut = false;
@@ -491,6 +532,8 @@ export class ArkanoidPower {
         this.previousBallCount = 0;
         this.ballsNeedingSpeedCorrection.clear();
         this.queuedActivation = false;
+        this.greenPegHitWhilePadActive = preserveFlag; // Preserve flag through deactivation
+        console.log('[Arkanoid] deactivatePad: reset state, preserved greenPegHitWhilePadActive:', preserveFlag);
         
         // Reset arkanoidActive flag in Game.js
         if (this.game) {
@@ -609,19 +652,8 @@ export class ArkanoidPower {
         
         // Check if ball went out of play (no active balls)
         if (this.game.balls.length === 0) {
-            // If ball went out without bouncing, reset power immediately
-            if (!this.ballBouncedBeforeOut) {
-                this.deactivatePad();
-                return;
-            } else {
-                // Ball bounced, so timer should handle deactivation
-                // But if timer isn't active, deactivate now
-                if (!this.timerActive) {
-                    this.deactivatePad();
-                    return;
-                }
-            }
-            // If timer is active, continue (pad should still track mouse)
+            // Ball went out - deactivate pad immediately (shot ended)
+            this.deactivatePad();
             return;
         }
         
@@ -695,6 +727,7 @@ export class ArkanoidPower {
         this.previousBallCount = 0;
         this.ballsNeedingSpeedCorrection.clear();
         this.queuedActivation = false;
+        this.greenPegHitWhilePadActive = false;
         this.queuedActivation = false;
     }
 }

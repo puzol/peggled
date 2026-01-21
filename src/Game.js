@@ -18,6 +18,7 @@ import { SpikeyPower } from './characters/SpikeyPower.js';
 import { BuzzPower } from './characters/BuzzPower.js';
 import { MikeyPower } from './characters/MikeyPower.js';
 import { MaddamPower } from './characters/MaddamPower.js';
+import { ArkanoidPower } from './characters/ArkanoidPower.js';
 import { LevelEditor } from './utils/LevelEditor.js';
 
 // Main game controller
@@ -163,6 +164,12 @@ export class Game {
                 power: 'Magnetic Pegs',
                 powerDescription: 'On green peg hit, grants a power for the next shot. Orange, Green, and Purple pegs gain magnetism, pulling the white ball within 1.5 points radius.'
             },
+            {
+                id: 'arkanoid',
+                name: 'Arkanoid',
+                power: 'Brick Breaker',
+                powerDescription: 'On green peg hit, bucket drops and a paddle rises. Bounce the ball off the paddle - first bounce removes gravity for 5 seconds!'
+            }
         ];
         
         // Character power systems
@@ -172,6 +179,7 @@ export class Game {
         this.buzzPower = new BuzzPower(this);
         this.mikeyPower = new MikeyPower(this);
         this.maddamPower = new MaddamPower(this);
+        this.arkanoidPower = new ArkanoidPower(this);
         this.levelEditor = new LevelEditor(this);
         
         // John the Gunner power system
@@ -195,6 +203,9 @@ export class Game {
         
         // Maddam Magna Thicke power system
         this.magneticActive = false; // Flag for magnetic power
+        
+        // Arkanoid power system
+        this.arkanoidActive = false; // Flag for arkanoid power
         
         
         // Perks
@@ -1190,6 +1201,7 @@ export class Game {
                 this.luckyCloverEnabled = false;
                 this.quillShotActive = false;
                 this.magneticActive = false; // Disable magnetic power
+                this.arkanoidActive = false; // Disable arkanoid power
                 this.selectedPower = null;
                 this.powerQueue = [];
                 this.updatePowerDisplay();
@@ -1402,6 +1414,13 @@ export class Game {
                     this.updatePowerDisplay();
                 }
                 
+                // Arkanoid: activate pad power immediately (like Spikey's spikes)
+                if (this.selectedCharacter?.id === 'arkanoid') {
+                    this.arkanoidActive = true; // Set flag
+                    this.arkanoidPower.onGreenPegHit(peg); // This will activate the pad immediately
+                    this.updatePowerDisplay();
+                }
+                
             }
             
             // Check for free ball
@@ -1491,6 +1510,13 @@ export class Game {
                 if (this.selectedCharacter?.id === 'buzz') {
                     this.buzzPower.onGreenPegHit(peg);
                     this.rocketActive = true; // Activate rocket for next shot
+                    this.updatePowerDisplay();
+                }
+                
+                // Arkanoid: activate pad power immediately (like Spikey's spikes)
+                if (this.selectedCharacter?.id === 'arkanoid') {
+                    this.arkanoidActive = true; // Set flag
+                    this.arkanoidPower.onGreenPegHit(peg); // This will activate the pad immediately
                     this.updatePowerDisplay();
                 }
                 
@@ -2074,6 +2100,11 @@ export class Game {
             this.rng.reset();
         }
         
+        // Reset character powers
+        if (this.arkanoidPower) {
+            this.arkanoidPower.reset();
+        }
+        
         // Reset game state
         this.ballsRemaining = 10;
         this.score = 0;
@@ -2090,6 +2121,7 @@ export class Game {
         this.buzzPower.reset();
         this.mikeyPower.reset();
         this.maddamPower.reset();
+        this.arkanoidPower.reset();
         
         // Clear all spikes
         if (this.spikes) {
@@ -2187,6 +2219,7 @@ export class Game {
         this.buzzPower.reset();
         this.mikeyPower.reset();
         this.maddamPower.reset();
+        this.arkanoidPower.reset();
         
         // Clear all spikes
         if (this.spikes) {
@@ -2914,6 +2947,11 @@ export class Game {
                 // Clamp velocity after peg collision
                 this.clampBallVelocity(ball);
                 
+                // Arkanoid power: increase ball speed on peg bounce
+                if (this.arkanoidPower && this.arkanoidActive && this.arkanoidPower.padBounced) {
+                    this.arkanoidPower.onPegBounce(ball);
+                }
+                
                 // Check if this is a new hit (peg not already hit)
                 const isNewHit = !peg.hit;
                 const wasAlreadyTracked = ball.hitPegs.includes(peg);
@@ -2989,6 +3027,10 @@ export class Game {
                             this.magneticActive = true;
                             this.maddamPower.onGreenPegHit(peg);
                             // Don't create magnet visuals yet - wait until shot ends and player is ready
+                        } else if (this.selectedCharacter?.id === 'arkanoid') {
+                            this.arkanoidPower.onGreenPegHit(peg);
+                            this.arkanoidActive = true; // Activate arkanoid for next shot
+                            this.updatePowerDisplay();
                         }
                         
                     }
@@ -3675,6 +3717,19 @@ export class Game {
                         this.maddamPower.updateMagnetism(ball, deltaTimeSeconds);
                     }
                 });
+            }
+            
+            // Handle Arkanoid pad updates
+            if (this.selectedCharacter?.id === 'arkanoid') {
+                const deltaTimeSeconds = deltaTime / 1000; // Convert to seconds
+                if (this.arkanoidPower && this.arkanoidActive) {
+                    this.arkanoidPower.update(deltaTimeSeconds);
+                }
+                
+                // Check if Arkanoid pad should be deactivated when ball goes out of play
+                if (this.arkanoidPower && this.arkanoidActive && this.balls.length === 0) {
+                    this.arkanoidPower.deactivatePad();
+                }
             }
             
             this.balls.forEach(ball => {

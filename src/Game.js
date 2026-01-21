@@ -4004,7 +4004,7 @@ export class Game {
                 const velocityCheckPassed = hasEnoughPegsHit && timeSinceHighVelocity >= 1.0;
                 // 5-second check: If ball hasn't hit a NEW peg in 5 seconds, it's stuck (or 2 seconds if Arkanoid active)
                 // This only resets on new peg hits, so bouncing between already-hit pegs triggers removal
-                const stuckTimerDuration = isArkanoidActive ? 0.2 : 5.0;
+                const stuckTimerDuration = isArkanoidActive ? 0.03 : 5.0;
                 const spawnCheckPassed = timeSinceSpawn >= stuckTimerDuration;
                 
                 // Stuck check logging removed - checks run silently
@@ -4032,7 +4032,7 @@ export class Game {
                     
                     // Remove pegs one by one from the snapshot
                     const timeSinceRemoveStart = currentTimeSeconds - ball.pegRemoveStartTime;
-                    const expectedIndex = Math.floor(timeSinceRemoveStart / 0.15);
+                    const expectedIndex = Math.floor(timeSinceRemoveStart / (isArkanoidActive ? 0.03 : 0.15));
                     
                     while (ball.pegRemoveIndex <= expectedIndex && ball.pegRemoveIndex < ball.pegsToRemove.length) {
                         const pegToRemove = ball.pegsToRemove[ball.pegRemoveIndex];

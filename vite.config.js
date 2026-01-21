@@ -8,8 +8,17 @@ export default defineConfig(({ command }) => {
   // In production (build), base is '/peggled/' for GitHub Pages
   const base = command === 'build' ? '/peggled/' : '/';
   
+  // Generate build timestamp (date and time down to minutes)
+  const now = new Date();
+  const buildTimestamp = now.toISOString().slice(0, 16).replace('T', ' '); // Format: YYYY-MM-DD HH:MM
+  
   return {
     base,
+    
+    define: {
+      // Inject build timestamp as a constant
+      __BUILD_TIMESTAMP__: JSON.stringify(buildTimestamp)
+    },
     
     server: {
       port: 3000,

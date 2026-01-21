@@ -119,6 +119,17 @@
             text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
         }
 
+        #build-version {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 12px;
+            font-weight: normal;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+            pointer-events: none;
+        }
+
         #power-turns {
             position: absolute;
             top: 50px;
@@ -1036,6 +1047,7 @@
                 <div id="balls-remaining">Balls: 10</div>
                 <div id="power-turns">Power: 0</div>
                 <div id="fps-display">FPS: 60</div>
+                <div id="build-version"></div>
                 <div id="seed-display">
                     <span>Seed: <span id="seed-value">-</span></span>
                     <button id="copy-seed-button" title="Copy seed to clipboard">📋</button>

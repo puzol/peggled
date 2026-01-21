@@ -18,7 +18,7 @@ export class ArkanoidPower {
         this.timerSeconds = 10; // Default timer duration (can be changed in activatePad)
         this.timerInterval = null;
         this.timerUI = null;
-        this.targetSpeed = 6; // Target speed - updated on pad bounces, maintained on peg bounces
+        this.targetSpeed = 8; // Target speed - updated on pad bounces, maintained on peg bounces
         this.bucketHidden = false;
         this.ballBouncedBeforeOut = false; // Track if ball bounced before going out
         this.ballsNeedingSpeedCorrection = new Set(); // Track balls that need speed correction next frame
@@ -82,7 +82,7 @@ export class ArkanoidPower {
         this.padActive = true;
         this.padBounced = false;
         this.ballBouncedBeforeOut = false;
-        this.targetSpeed = 6; // Reset target speed
+        this.targetSpeed = 8; // Reset target speed
         this.previousBallCount = 0;
         this.queuedActivation = false; // Clear queue when pad activates
         // Don't clear greenPegHitWhilePadActive - it will be used on next shot
@@ -357,7 +357,7 @@ export class ArkanoidPower {
                 this.startTimer();
                 
                 // Set target speed to 6 on first bounce
-                this.targetSpeed = 6;
+                this.targetSpeed = 8;
                 
                 // Set velocity to target speed on first bounce
                 ball.body.velocity.set(

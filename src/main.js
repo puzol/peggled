@@ -3,6 +3,12 @@ import { Game } from './Game.js';
 
 // Initialize the game when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
+    // Display build version (timestamp injected at build time)
+    const buildVersionElement = document.getElementById('build-version');
+    if (buildVersionElement && typeof __BUILD_TIMESTAMP__ !== 'undefined') {
+        buildVersionElement.textContent = `v${__BUILD_TIMESTAMP__}`;
+    }
+    
     // Show level editor button only on localhost
     const levelEditorButton = document.getElementById('level-editor-button');
     const objectsButton = document.getElementById('objects-button');

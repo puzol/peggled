@@ -495,9 +495,12 @@ export class Game {
         
         // Mute tracks 2-4 when showing character selector (keep track 1 playing)
         if (this.audioManager) {
-            this.audioManager.setMusicTrackMuted('PilotsOgg2', true);
-            this.audioManager.setMusicTrackMuted('PilotsOgg3', true);
-            this.audioManager.setMusicTrackMuted('PilotsOgg4', true);
+            const track2Name = this.audioManager.getTrackName(2);
+            const track3Name = this.audioManager.getTrackName(3);
+            const track4Name = this.audioManager.getTrackName(4);
+            if (track2Name) this.audioManager.setMusicTrackMuted(track2Name, true);
+            if (track3Name) this.audioManager.setMusicTrackMuted(track3Name, true);
+            if (track4Name) this.audioManager.setMusicTrackMuted(track4Name, true);
         }
     }
     
@@ -514,7 +517,7 @@ export class Game {
      */
     async loadMusicTracksOnce() {
         if (this.audioManager) {
-            await this.audioManager.loadMusicTracks('track1', `${import.meta.env.BASE_URL}sounds/`);
+            await this.audioManager.loadMusicTracks('track2', `${import.meta.env.BASE_URL}sounds/`);
         }
     }
 
@@ -1471,6 +1474,18 @@ export class Game {
                 this.updateBallsRemainingUI();
                 this.updateFreeBallMeter();
             }
+            
+            // Small pegs (small round, small rectangular, etc.) are removed immediately after collision
+            // This applies to all small pegs regardless of type, but AFTER special peg actions
+            if (peg.size === 'small') {
+                const pegIndex = this.pegs.indexOf(peg);
+                if (pegIndex !== -1) {
+                    peg.remove();
+                    this.pegs.splice(pegIndex, 1);
+                    // Don't add to explosionHitPegs since it's already removed
+                    return; // Skip to next peg
+                }
+            }
         });
         
         // Now process all other pegs (they will benefit from the purple peg multiplier if it was activated)
@@ -1513,7 +1528,7 @@ export class Game {
                 this.updateOrangePegMultiplier();
             }
             
-            // Check for green peg (power activation)
+            // Check for green peg (power activation) - only on first hit
             if (peg.isGreen) {
                 // Peter the Leprechaun: add 3 turns per green peg hit
                 if (this.selectedCharacter?.id === 'peter') {
@@ -1600,6 +1615,18 @@ export class Game {
                 this.currentShotScore = this.currentShotScore % this.freeBallThreshold;
                 this.updateBallsRemainingUI();
                 this.updateFreeBallMeter();
+            }
+            
+            // Small pegs (small round, small rectangular, etc.) are removed immediately after collision
+            // This applies to all small pegs regardless of type, but AFTER special peg actions
+            if (peg.size === 'small') {
+                const pegIndex = this.pegs.indexOf(peg);
+                if (pegIndex !== -1) {
+                    peg.remove();
+                    this.pegs.splice(pegIndex, 1);
+                    // Don't add to explosionHitPegs since it's already removed
+                    return; // Skip to next peg
+                }
             }
         });
         
@@ -2389,9 +2416,12 @@ export class Game {
             }
             
             // Update mute states based on multiplier value (fade-in only happens when transitioning from muted to unmuted)
-            this.audioManager.setMusicTrackMuted('PilotsOgg2', track2Muted);
-            this.audioManager.setMusicTrackMuted('PilotsOgg3', track3Muted);
-            this.audioManager.setMusicTrackMuted('PilotsOgg4', track4Muted);
+            const track2Name = this.audioManager.getTrackName(2);
+            const track3Name = this.audioManager.getTrackName(3);
+            const track4Name = this.audioManager.getTrackName(4);
+            if (track2Name) this.audioManager.setMusicTrackMuted(track2Name, track2Muted);
+            if (track3Name) this.audioManager.setMusicTrackMuted(track3Name, track3Muted);
+            if (track4Name) this.audioManager.setMusicTrackMuted(track4Name, track4Muted);
         }
         
         // Clamp percentage for display (shouldn't exceed 100%)
@@ -2416,7 +2446,22 @@ export class Game {
         // Remove purple status from previous purple peg (if any)
         if (this.purplePeg && !this.purplePeg.hit) {
             // Reset to blue color if not hit
-            this.purplePeg.mesh.material.color.setHex(0x4a90e2); // Blue
+            this.purplePeg.color = 0x4a90e2; // Update stored color
+            if (this.purplePeg.mesh.material && this.purplePeg.mesh.material.uniforms) {
+                // Lighten color to compensate for shader darkening
+                const lightenColor = (hexColor, factor) => {
+                    const r = ((hexColor >> 16) & 0xFF) * factor;
+                    const g = ((hexColor >> 8) & 0xFF) * factor;
+                    const b = (hexColor & 0xFF) * factor;
+                    return ((Math.min(255, r) << 16) | (Math.min(255, g) << 8) | Math.min(255, b));
+                };
+                const lightenedColor = lightenColor(0x4a90e2, 1.3);
+                this.purplePeg.mesh.material.uniforms.pegColor.value.setHex(lightenedColor);
+                // Also update bounce color if it's normal (since normal uses peg color)
+                if (this.purplePeg.bounceType === 'normal') {
+                    this.purplePeg.mesh.material.uniforms.bounceColor.value.setHex(lightenedColor);
+                }
+            }
             this.purplePeg.isPurple = false;
             this.purplePeg.pointValue = 300; // Reset to base value (blue peg value)
             
@@ -2461,8 +2506,23 @@ export class Game {
         this.purplePeg.isPurple = true;
         this.purplePeg.pointValue = 1500; // Purple peg value
         
-        // Change color to purple (lighter purple for default state)
-        this.purplePeg.mesh.material.color.setHex(0xba55d3); // Lighter purple
+        // Change color to purple (lighter purple for default state) - update shader uniforms
+        this.purplePeg.color = 0xba55d3; // Update stored color
+        if (this.purplePeg.mesh.material && this.purplePeg.mesh.material.uniforms) {
+            // Lighten color to compensate for shader darkening
+            const lightenColor = (hexColor, factor) => {
+                const r = ((hexColor >> 16) & 0xFF) * factor;
+                const g = ((hexColor >> 8) & 0xFF) * factor;
+                const b = (hexColor & 0xFF) * factor;
+                return ((Math.min(255, r) << 16) | (Math.min(255, g) << 8) | Math.min(255, b));
+            };
+            const lightenedColor = lightenColor(0xba55d3, 1.3);
+            this.purplePeg.mesh.material.uniforms.pegColor.value.setHex(lightenedColor);
+            // Also update bounce color if it's normal (since normal uses peg color)
+            if (this.purplePeg.bounceType === 'normal') {
+                this.purplePeg.mesh.material.uniforms.bounceColor.value.setHex(lightenedColor);
+            }
+        }
         
         // If Maddam's power is active, add magnet to the new purple peg
         if (this.selectedCharacter?.id === 'maddam' && this.maddamPower && 
@@ -2562,9 +2622,10 @@ export class Game {
                 const roundedX = this.roundToDecimals(pegData.x);
                 const roundedY = this.roundToDecimals(pegData.y);
                 
-                // Get type and size from level data, default to round base if not specified
+                // Get type, size, and bounceType from level data, default to round base normal if not specified
                 const pegType = pegData.type || 'round';
                 const pegSize = pegData.size || 'base';
+                const pegBounceType = pegData.bounceType || 'normal';
                 
                 const peg = new Peg(
                     this.scene,
@@ -2573,7 +2634,8 @@ export class Game {
                     baseColor,
                     pegMaterial,
                     pegType,
-                    pegSize
+                    pegSize,
+                    pegBounceType
                 );
                 
                 // Set base point value (will be updated for special pegs)
@@ -2657,8 +2719,23 @@ export class Game {
                     const peg = this.pegs[i];
                     peg.isGreen = true;
                     peg.pointValue = 800; // Green pegs are worth 1200 points
-                    // Change color to green
-                    peg.mesh.material.color.setHex(0x32cd32); // Green color
+                    // Change color to green - update shader uniforms
+                    peg.color = 0x32cd32; // Update stored color
+                    if (peg.mesh.material && peg.mesh.material.uniforms) {
+                        // Lighten color to compensate for shader darkening
+                        const lightenColor = (hexColor, factor) => {
+                            const r = ((hexColor >> 16) & 0xFF) * factor;
+                            const g = ((hexColor >> 8) & 0xFF) * factor;
+                            const b = (hexColor & 0xFF) * factor;
+                            return ((Math.min(255, r) << 16) | (Math.min(255, g) << 8) | Math.min(255, b));
+                        };
+                        const lightenedColor = lightenColor(0x32cd32, 1.3);
+                        peg.mesh.material.uniforms.pegColor.value.setHex(lightenedColor);
+                        // Also update bounce color if it's normal (since normal uses peg color)
+                        if (peg.bounceType === 'normal') {
+                            peg.mesh.material.uniforms.bounceColor.value.setHex(lightenedColor);
+                        }
+                    }
                 });
                 
                 // Select 25 orange pegs from remaining indices (skip the 2 green ones)
@@ -2667,8 +2744,23 @@ export class Game {
                     const peg = this.pegs[i];
                     peg.isOrange = true;
                     peg.pointValue = 500;
-                    // Change color to orange
-                    peg.mesh.material.color.setHex(0xff8c00); // Orange color
+                    // Change color to orange - update shader uniforms
+                    peg.color = 0xff8c00; // Update stored color
+                    if (peg.mesh.material && peg.mesh.material.uniforms) {
+                        // Lighten color to compensate for shader darkening
+                        const lightenColor = (hexColor, factor) => {
+                            const r = ((hexColor >> 16) & 0xFF) * factor;
+                            const g = ((hexColor >> 8) & 0xFF) * factor;
+                            const b = (hexColor & 0xFF) * factor;
+                            return ((Math.min(255, r) << 16) | (Math.min(255, g) << 8) | Math.min(255, b));
+                        };
+                        const lightenedColor = lightenColor(0xff8c00, 1.3);
+                        peg.mesh.material.uniforms.pegColor.value.setHex(lightenedColor);
+                        // Also update bounce color if it's normal (since normal uses peg color)
+                        if (peg.bounceType === 'normal') {
+                            peg.mesh.material.uniforms.bounceColor.value.setHex(lightenedColor);
+                        }
+                    }
                 });
                 
                 // Assign initial purple peg
@@ -2686,10 +2778,14 @@ export class Game {
                 this.musicStarted = true;
                 
                 // Ensure correct mute states (track 1 unmuted, tracks 2-4 muted)
-                this.audioManager.setMusicTrackMuted('PilotsOgg1', false);
-                this.audioManager.setMusicTrackMuted('PilotsOgg2', true);
-                this.audioManager.setMusicTrackMuted('PilotsOgg3', true);
-                this.audioManager.setMusicTrackMuted('PilotsOgg4', true);
+                const track1Name = this.audioManager.getTrackName(1);
+                const track2Name = this.audioManager.getTrackName(2);
+                const track3Name = this.audioManager.getTrackName(3);
+                const track4Name = this.audioManager.getTrackName(4);
+                if (track1Name) this.audioManager.setMusicTrackMuted(track1Name, false);
+                if (track2Name) this.audioManager.setMusicTrackMuted(track2Name, true);
+                if (track3Name) this.audioManager.setMusicTrackMuted(track3Name, true);
+                if (track4Name) this.audioManager.setMusicTrackMuted(track4Name, true);
             }
             
             // Initialize orange peg multiplier tracker (this will set correct track states based on multiplier)
@@ -2964,6 +3060,30 @@ export class Game {
             this.updateGoalUI();
         }
         
+        // Small pegs (small round, small rectangular, etc.) are removed immediately after collision
+        // This applies to all small pegs regardless of type, but AFTER special peg actions
+        if (peg.size === 'small') {
+            const pegIndex = this.pegs.indexOf(peg);
+            if (pegIndex !== -1) {
+                peg.remove();
+                this.pegs.splice(pegIndex, 1);
+                // Remove from spike's hitPegs if present
+                const spikePegIndex = spike.hitPegs.indexOf(peg);
+                if (spikePegIndex !== -1) {
+                    spike.hitPegs.splice(spikePegIndex, 1);
+                }
+                // Remove from ball's hitPegs if present
+                if (spike.parentBall) {
+                    const ballPegIndex = spike.parentBall.hitPegs.indexOf(peg);
+                    if (ballPegIndex !== -1) {
+                        spike.parentBall.hitPegs.splice(ballPegIndex, 1);
+                    }
+                }
+                // Skip rest of spike-peg collision logic since peg is removed
+                return;
+            }
+        }
+        
         // Handle purple peg multiplier
         // Only reposition purple peg if Peter's power is active
         // For other characters, purple peg just activates but doesn't reposition
@@ -3180,6 +3300,23 @@ export class Game {
                             const fuelAmount = Math.max(minFuel, baseFuel - (ball.rocketFuelRestoreCount - 1) * decreasePerRestore);
                             
                             ball.rocketFuelRemaining = Math.min(2.5, ball.rocketFuelRemaining + fuelAmount);
+                        }
+                    }
+                    
+                    // Small pegs (small round, small rectangular, etc.) are removed immediately after collision
+                    // This applies to all small pegs regardless of type, but AFTER special peg actions
+                    if (peg.size === 'small') {
+                        const pegIndex = this.pegs.indexOf(peg);
+                        if (pegIndex !== -1) {
+                            peg.remove();
+                            this.pegs.splice(pegIndex, 1);
+                            // Remove from ball's hitPegs array if present
+                            const ballPegIndex = ball.hitPegs.indexOf(peg);
+                            if (ballPegIndex !== -1) {
+                                ball.hitPegs.splice(ballPegIndex, 1);
+                            }
+                            // Skip rest of peg hit logic since peg is removed
+                            return;
                         }
                     }
                 } catch (error) {

@@ -29,6 +29,12 @@ export class PhysicsWorld {
         this.characteristicNoBounceMaterial = new CANNON.Material('characteristic-no-bounce');
         this.characteristicSuperBouncyMaterial = new CANNON.Material('characteristic-super-bouncy');
         
+        // Create materials for pegs with different bounce types
+        this.pegNormalMaterial = new CANNON.Material('peg-normal');
+        this.pegDampenedMaterial = new CANNON.Material('peg-dampened');
+        this.pegNoBounceMaterial = new CANNON.Material('peg-no-bounce');
+        this.pegSuperBouncyMaterial = new CANNON.Material('peg-super-bouncy');
+        
         // Create contact material to define how ball and wall interact
         // Increased bounce by 25%: 0.7 * 1.25 = 0.875
         const ballWallContact = new CANNON.ContactMaterial(
@@ -97,6 +103,51 @@ export class PhysicsWorld {
             }
         );
         this.world.addContactMaterial(ballCharacteristicSuperBouncyContact);
+        
+        // Create contact materials for pegs with different bounce types
+        // Normal bounce (same as default pegs)
+        const ballPegNormalContact = new CANNON.ContactMaterial(
+            this.ballMaterial,
+            this.pegNormalMaterial,
+            {
+                friction: 0.3,
+                restitution: 0.875 // Normal bounce
+            }
+        );
+        this.world.addContactMaterial(ballPegNormalContact);
+        
+        // Dampened bounce (energy loss)
+        const ballPegDampenedContact = new CANNON.ContactMaterial(
+            this.ballMaterial,
+            this.pegDampenedMaterial,
+            {
+                friction: 0.3,
+                restitution: 0.3 // Dampened bounce
+            }
+        );
+        this.world.addContactMaterial(ballPegDampenedContact);
+        
+        // No bounce (ball stops/sticks)
+        const ballPegNoBounceContact = new CANNON.ContactMaterial(
+            this.ballMaterial,
+            this.pegNoBounceMaterial,
+            {
+                friction: 0.3,
+                restitution: 0.0 // No bounce
+            }
+        );
+        this.world.addContactMaterial(ballPegNoBounceContact);
+        
+        // Super bouncy (extra bounce, energy gain)
+        const ballPegSuperBouncyContact = new CANNON.ContactMaterial(
+            this.ballMaterial,
+            this.pegSuperBouncyMaterial,
+            {
+                friction: 0.3,
+                restitution: 1.2 // Super bouncy (can exceed 1.0 for energy gain)
+            }
+        );
+        this.world.addContactMaterial(ballPegSuperBouncyContact);
     }
 
     createBoundaries() {
@@ -161,8 +212,18 @@ export class PhysicsWorld {
         return this.ballMaterial;
     }
 
-    getPegMaterial() {
-        return this.pegMaterial;
+    getPegMaterial(bounceType = 'normal') {
+        switch (bounceType) {
+            case 'dampened':
+                return this.pegDampenedMaterial;
+            case 'no-bounce':
+                return this.pegNoBounceMaterial;
+            case 'super-bouncy':
+                return this.pegSuperBouncyMaterial;
+            case 'normal':
+            default:
+                return this.pegNormalMaterial;
+        }
     }
     
     getCharacteristicMaterial(bounceType = 'normal') {

@@ -1988,9 +1988,10 @@ export class LevelEditor {
             }
             
             
-            // Get type and size from tool
+            // Get type, size, and bounceType from tool
             const pegType = tool.type || 'round';
             const pegSize = tool.size || 'base';
+            const pegBounceType = tool.bounceType || 'normal';
             
             const peg = new Peg(
                 this.game.scene,
@@ -1999,7 +2000,8 @@ export class LevelEditor {
                 baseColor,
                 pegMaterial,
                 pegType,
-                pegSize
+                pegSize,
+                pegBounceType
             );
             
             peg.pointValue = 300;
@@ -2024,6 +2026,7 @@ export class LevelEditor {
                 category: 'peg',
                 type: tool.type,
                 size: tool.size,
+                bounceType: tool.bounceType || 'normal',
                 position: { x: roundedX, y: roundedY, z: 0 },
                 color: baseColor,
                 rotation: 0 // Initialize rotation to 0
@@ -2733,7 +2736,8 @@ export class LevelEditor {
                     sourcePeg.color,
                     pegMaterial,
                     sourcePeg.type,
-                    sourcePeg.size
+                    sourcePeg.size,
+                    sourcePeg.bounceType || 'normal'
                 );
                 
                 // Copy rotation
@@ -2754,6 +2758,7 @@ export class LevelEditor {
                     category: 'peg',
                     type: sourcePeg.type,
                     size: sourcePeg.size,
+                    bounceType: sourcePeg.bounceType || 'normal',
                     position: { x: roundedX, y: roundedY, z: 0 },
                     color: sourcePeg.color,
                     rotation: peg.mesh.rotation.z
@@ -2835,7 +2840,8 @@ export class LevelEditor {
                                 sourcePeg.color,
                                 pegMaterial,
                                 sourcePeg.type,
-                                sourcePeg.size
+                                sourcePeg.size,
+                                sourcePeg.bounceType || 'normal'
                             );
                             
                             // Copy rotation
@@ -2859,6 +2865,7 @@ export class LevelEditor {
                                 category: 'peg',
                                 type: sourcePeg.type,
                                 size: sourcePeg.size,
+                                bounceType: sourcePeg.bounceType || 'normal',
                                 position: { x: roundedX, y: roundedY, z: 0 }, // Will be updated by rearrangePegs
                                 color: sourcePeg.color,
                                 rotation: peg.mesh.rotation.z
@@ -3109,7 +3116,7 @@ export class LevelEditor {
         // Round pegs - 3 sizes
         for (const [sizeName, size] of Object.entries(this.pegSizes)) {
             const item = this.createToolbarItem('round', sizeName, size, 'circle');
-            item.addEventListener('click', () => this.selectTool('peg', { type: 'round', size: sizeName }));
+            item.addEventListener('click', () => this.selectTool('peg', { type: 'round', size: sizeName, bounceType: 'normal' }));
             pegsItems.appendChild(item);
         }
         
@@ -3117,7 +3124,7 @@ export class LevelEditor {
         for (const [sizeName, height] of Object.entries(this.pegSizes)) {
             const width = height * 2; // 2:1 ratio
             const item = this.createToolbarItem('rect', sizeName, { width, height }, 'rectangle');
-            item.addEventListener('click', () => this.selectTool('peg', { type: 'rect', size: sizeName }));
+            item.addEventListener('click', () => this.selectTool('peg', { type: 'rect', size: sizeName, bounceType: 'normal' }));
             pegsItems.appendChild(item);
         }
         
@@ -3126,7 +3133,7 @@ export class LevelEditor {
             const width = height * 2;
             const curveHeight = height * 0.2; // 20% curve
             const item = this.createToolbarItem('dome', sizeName, { width, height, curveHeight }, 'dome');
-            item.addEventListener('click', () => this.selectTool('peg', { type: 'dome', size: sizeName }));
+            item.addEventListener('click', () => this.selectTool('peg', { type: 'dome', size: sizeName, bounceType: 'normal' }));
             pegsItems.appendChild(item);
         }
     }
@@ -4084,6 +4091,73 @@ export class LevelEditor {
         
         content.appendChild(mirroredGroup);
         
+        // Bounce Type setting
+        const bounceGroup = document.createElement('div');
+        bounceGroup.style.cssText = `display: flex; flex-direction: column; gap: 10px;`;
+        const bounceLabel = document.createElement('label');
+        bounceLabel.textContent = 'Bounce Type';
+        bounceLabel.style.cssText = `color: white; font-size: 16px; font-weight: bold;`;
+        
+        const bounceSelect = document.createElement('select');
+        bounceSelect.id = 'peg-bounce-select';
+        bounceSelect.style.cssText = `
+            padding: 10px;
+            background: rgba(30, 40, 60, 0.9);
+            border: 2px solid #6495ed;
+            border-radius: 8px;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+        `;
+        
+        const bounceTypes = [
+            { value: 'normal', label: 'Normal (Grey)' },
+            { value: 'dampened', label: 'Dampened (Dark Grey)' },
+            { value: 'no-bounce', label: 'No Bounce (Very Dark)' },
+            { value: 'super-bouncy', label: 'Super Bouncy (Crimson)' }
+        ];
+        
+        bounceTypes.forEach(({ value, label }) => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = label;
+            if ((this.pegForSettings.bounceType || 'normal') === value) {
+                option.selected = true;
+            }
+            bounceSelect.appendChild(option);
+        });
+        
+        bounceSelect.addEventListener('change', (e) => {
+            if (this.pegForSettings) {
+                this.pegForSettings.setBounceType(e.target.value);
+                
+                // Update in placed objects
+                const placedObj = this.placedObjects.find(obj => {
+                    if (obj.category === 'peg' && obj.position && this.pegForSettings.body) {
+                        const objX = obj.position.x;
+                        const objY = obj.position.y;
+                        const pegX = this.pegForSettings.body.position.x;
+                        const pegY = this.pegForSettings.body.position.y;
+                        const distance = Math.sqrt(
+                            Math.pow(objX - pegX, 2) + 
+                            Math.pow(objY - pegY, 2)
+                        );
+                        return distance < 0.05;
+                    }
+                    return false;
+                });
+                
+                if (placedObj) {
+                    placedObj.bounceType = e.target.value;
+                }
+            }
+        });
+        
+        bounceGroup.appendChild(bounceLabel);
+        bounceGroup.appendChild(bounceSelect);
+        
+        content.appendChild(bounceGroup);
+        
         modal.appendChild(header);
         modal.appendChild(content);
         overlay.appendChild(modal);
@@ -4414,6 +4488,7 @@ export class LevelEditor {
                 color: peg.color || 0x4a90e2,
                 type: peg.type || 'round', // Preserve peg type
                 size: peg.size || 'base',  // Preserve peg size
+                bounceType: peg.bounceType || 'normal', // Preserve bounce type
                 rotation: rotation          // Preserve rotation
             };
         });
@@ -4455,7 +4530,7 @@ export class LevelEditor {
             // Import Peg class to recreate pegs
             import('../entities/Peg.js').then(({ Peg }) => {
                 this.originalPegs.forEach(pegData => {
-                    // Restore peg with preserved type and size
+                    // Restore peg with preserved type, size, and bounceType
                     const peg = new Peg(
                         this.game.scene,
                         this.game.physicsWorld,
@@ -4463,7 +4538,8 @@ export class LevelEditor {
                         pegData.color,
                         pegMaterial,
                         pegData.type || 'round',  // Restore peg type
-                        pegData.size || 'base'    // Restore peg size
+                        pegData.size || 'base',   // Restore peg size
+                        pegData.bounceType || 'normal'  // Restore bounce type
                     );
                     
                     // Restore rotation if it was saved
@@ -4883,6 +4959,7 @@ export class LevelEditor {
                                 // Use matched peg data or pegRef properties, fallback to defaults
                                 const pegType = (pegRef.type || matchedPegData?.type) || 'round';
                                 const pegSize = (pegRef.size || matchedPegData?.size) || 'base';
+                                const pegBounceType = (pegRef.bounceType || matchedPegData?.bounceType) || 'normal';
                                 let pegColor = pegRef.color || matchedPegData?.color || 0x4a90e2; // Default blue
                                 const pegRotation = (pegRef.rotation !== undefined ? pegRef.rotation : (matchedPegData?.rotation !== undefined ? matchedPegData.rotation : 0));
                                 
@@ -4901,7 +4978,8 @@ export class LevelEditor {
                                     pegColor,
                                     pegMaterial,
                                     pegType,
-                                    pegSize
+                                    pegSize,
+                                    pegBounceType
                                 );
                                 
                                 peg.pointValue = 300;
@@ -4929,6 +5007,7 @@ export class LevelEditor {
                                     category: 'peg',
                                     type: pegType,
                                     size: pegSize,
+                                    bounceType: pegData.bounceType || 'normal',
                                     position: { x: pegX, y: pegY, z: pegZ },
                                     color: pegColor,
                                     rotation: pegRotation
@@ -5094,6 +5173,7 @@ export class LevelEditor {
                     const roundedY = this.roundToDecimals(pegData.y);
                     const pegType = pegData.type || 'round';
                     const pegSize = pegData.size || 'base';
+                    const pegBounceType = pegData.bounceType || 'normal';
                     const rotation = pegData.rotation || 0;
                     
                     const peg = new Peg(
@@ -5103,7 +5183,8 @@ export class LevelEditor {
                         baseColor,
                         pegMaterial,
                         pegType,
-                        pegSize
+                        pegSize,
+                        pegBounceType
                     );
                     
                     peg.pointValue = 300;
@@ -5131,6 +5212,7 @@ export class LevelEditor {
                         category: 'peg',
                         type: pegType,
                         size: pegSize,
+                        bounceType: pegBounceType,
                         position: { x: roundedX, y: roundedY, z: pegData.z || 0 },
                         color: baseColor,
                         rotation: pegData.rotation || 0
@@ -5413,6 +5495,7 @@ export class LevelEditor {
                     color: pegObj ? (pegObj.color || 0x4a90e2) : 0x4a90e2,
                     type: peg.type || 'round',
                     size: peg.size || 'base',
+                    bounceType: pegObj ? (pegObj.bounceType || 'normal') : (peg.bounceType || 'normal'),
                     rotation: rotation
                 };
             }),
@@ -5819,7 +5902,8 @@ export class LevelEditor {
                         sourcePeg.color,
                         pegMaterial,
                         sourcePeg.type,
-                        sourcePeg.size
+                        sourcePeg.size,
+                        sourcePeg.bounceType || 'normal'
                     );
                     
                     peg.pointValue = sourcePeg.pointValue || 300;
@@ -5837,6 +5921,7 @@ export class LevelEditor {
                         category: 'peg',
                         type: sourcePeg.type,
                         size: sourcePeg.size,
+                        bounceType: sourcePeg.bounceType || 'normal',
                         position: { x: roundedX, y: roundedY, z: 0 },
                         color: sourcePeg.color,
                         rotation: 0,
@@ -5927,7 +6012,8 @@ export class LevelEditor {
                         peg.color,
                         pegMaterial,
                         peg.type,
-                        peg.size
+                        peg.size,
+                        peg.bounceType || 'normal'
                     );
                     
                     mirrorCopy.pointValue = peg.pointValue || 300;
@@ -5944,6 +6030,7 @@ export class LevelEditor {
                         category: 'peg',
                         type: peg.type,
                         size: peg.size,
+                        bounceType: peg.bounceType || 'normal',
                         position: { x: roundedX, y: roundedY, z: 0 },
                         color: peg.color,
                         rotation: 0,
@@ -6275,7 +6362,8 @@ export class LevelEditor {
                     peg.color,
                     pegMaterial,
                     peg.type,
-                    peg.size
+                    peg.size,
+                    peg.bounceType || 'normal'
                 );
                 
                 mirrorPeg.pointValue = peg.pointValue || 300;
@@ -6293,6 +6381,7 @@ export class LevelEditor {
                     category: 'peg',
                     type: peg.type,
                     size: peg.size,
+                    bounceType: peg.bounceType || 'normal',
                     position: { x: mirrorPegX, y: mirrorPegY, z: 0 },
                     color: peg.color,
                     rotation: 0,

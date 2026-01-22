@@ -148,8 +148,23 @@ export class PeterPower {
         newPurplePeg.isPurple = true;
         newPurplePeg.pointValue = 1500; // Purple peg value
         
-        // Change color to purple (lighter purple for default state)
-        newPurplePeg.mesh.material.color.setHex(0xba55d3); // Lighter purple
+        // Change color to purple (lighter purple for default state) - update shader uniforms
+        newPurplePeg.color = 0xba55d3; // Update stored color
+        if (newPurplePeg.mesh.material && newPurplePeg.mesh.material.uniforms) {
+            // Lighten color to compensate for shader darkening
+            const lightenColor = (hexColor, factor) => {
+                const r = ((hexColor >> 16) & 0xFF) * factor;
+                const g = ((hexColor >> 8) & 0xFF) * factor;
+                const b = (hexColor & 0xFF) * factor;
+                return ((Math.min(255, r) << 16) | (Math.min(255, g) << 8) | Math.min(255, b));
+            };
+            const lightenedColor = lightenColor(0xba55d3, 1.3);
+            newPurplePeg.mesh.material.uniforms.pegColor.value.setHex(lightenedColor);
+            // Also update bounce color if it's normal (since normal uses peg color)
+            if (newPurplePeg.bounceType === 'normal') {
+                newPurplePeg.mesh.material.uniforms.bounceColor.value.setHex(lightenedColor);
+            }
+        }
         
         // Add to temporary purple pegs array
         this.game.temporaryPurplePegs.push(newPurplePeg);

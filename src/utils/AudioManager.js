@@ -30,7 +30,7 @@ export class AudioManager {
         // Using exact semitone ratios: 2^(semitones/12)
         // Major scale: Root, Major 2nd (+2), Major 3rd (+4), Perfect 4th (+5), Perfect 5th (+7), Major 6th (+9), Major 7th (+11), Octave (+12)
         const basePitch = 0.85; // Starting lower than normal (1.0)
-        const firstOctave = [
+        const majorFirstOctave = [
             basePitch,                    // Starting lower
             basePitch * Math.pow(2, 2/12),   // Major 2nd (+2 semitones)
             basePitch * Math.pow(2, 4/12),   // Major 3rd (+4 semitones)
@@ -41,15 +41,36 @@ export class AudioManager {
             basePitch * Math.pow(2, 12/12)   // Octave (+12 semitones = 2x)
         ];
         // Second octave: multiply first octave by 2
-        const secondOctave = firstOctave.map(pitch => pitch * 2);
-        this.pegHitScale = [...firstOctave, ...secondOctave];
+        const majorSecondOctave = majorFirstOctave.map(pitch => pitch * 2);
+        this.pegHitScaleMajor = [...majorFirstOctave, ...majorSecondOctave];
+        
+        // Minor scale progression for peg hits (2 octaves)
+        // Minor scale: Root, Major 2nd (+2), Minor 3rd (+3), Perfect 4th (+5), Perfect 5th (+7), Minor 6th (+8), Minor 7th (+10), Octave (+12)
+        const minorFirstOctave = [
+            basePitch,                    // Starting lower
+            basePitch * Math.pow(2, 2/12),   // Major 2nd (+2 semitones)
+            basePitch * Math.pow(2, 3/12),   // Minor 3rd (+3 semitones)
+            basePitch * Math.pow(2, 5/12),   // Perfect 4th (+5 semitones)
+            basePitch * Math.pow(2, 7/12),   // Perfect 5th (+7 semitones)
+            basePitch * Math.pow(2, 8/12),   // Minor 6th (+8 semitones)
+            basePitch * Math.pow(2, 10/12),  // Minor 7th (+10 semitones)
+            basePitch * Math.pow(2, 12/12)   // Octave (+12 semitones = 2x)
+        ];
+        // Second octave: multiply first octave by 2
+        const minorSecondOctave = minorFirstOctave.map(pitch => pitch * 2);
+        this.pegHitScaleMinor = [...minorFirstOctave, ...minorSecondOctave];
+        
+        // Default to major scale (will switch based on active track)
+        this.pegHitScale = this.pegHitScaleMajor;
         this.pegHitIndex = 0; // Current position in scale
         this.pegHitDirection = 1; // 1 for up, -1 for down (ping-pong direction)
         this.lastPegHitPitch = null; // Track last pitch used for new peg hits
         
         // Ghost ball scale (reversed - high to low)
         // Reverse the regular scale and start from the highest pitch
-        this.ghostBallScale = [...secondOctave, ...firstOctave].reverse();
+        this.ghostBallScaleMajor = [...majorSecondOctave, ...majorFirstOctave].reverse();
+        this.ghostBallScaleMinor = [...minorSecondOctave, ...minorFirstOctave].reverse();
+        this.ghostBallScale = this.ghostBallScaleMajor; // Default to major
         this.ghostBallHitIndex = 0; // Current position in ghost ball scale
         this.ghostBallHitDirection = -1; // -1 for down, 1 for up (ping-pong direction, starts going down)
         this.lastGhostBallPitch = null; // Track last pitch used for ghost ball hits
@@ -270,11 +291,11 @@ export class AudioManager {
     }
     
     /**
-     * Play peg hit sound going up the major scale
+     * Play peg hit sound going up the scale (major or minor based on active track)
      * Starts from a lower pitch and progresses upward
      */
     playPegHit() {
-        // Get current pitch from major scale
+        // Get current pitch from scale (major for track1, minor for track2)
         const pitch = this.pegHitScale[this.pegHitIndex];
         
         // Track last pitch for already-hit pegs
@@ -726,8 +747,10 @@ export class AudioManager {
         // Destroy existing tracks if any (only happens on level load or track change)
         this.destroyMusicTracks();
         
-        // Track file names (assuming they're named PilotsOgg1, PilotsOgg2, etc.)
-        const trackFiles = ['PilotsOgg1', 'PilotsOgg2', 'PilotsOgg3', 'PilotsOgg4'];
+        // Track file names - dynamic based on track folder
+        // track1 uses 'PilotsOgg', track2 uses 'aWalk'
+        const trackPrefix = trackName === 'track2' ? 'aWalk' : 'PilotsOgg';
+        const trackFiles = [`${trackPrefix}1`, `${trackPrefix}2`, `${trackPrefix}3`, `${trackPrefix}4`];
         const trackPath = `${basePath}tracks/${trackName}/`;
         
         // Load all track buffers
@@ -758,6 +781,46 @@ export class AudioManager {
         }
         
         this.activeMusic.loaded = true;
+        
+        // Update scales based on active track (minor for track2, major for others)
+        this.updateScalesForTrack(trackName);
+    }
+    
+    /**
+     * Update peg hit scales based on active track
+     * Minor scale for track2, major scale for others
+     * @param {string} trackName - Track folder name (e.g., "track1", "track2")
+     */
+    updateScalesForTrack(trackName) {
+        if (trackName === 'track2') {
+            // Use minor scale for track2
+            this.pegHitScale = this.pegHitScaleMinor;
+            this.ghostBallScale = this.ghostBallScaleMinor;
+        } else {
+            // Use major scale for other tracks
+            this.pegHitScale = this.pegHitScaleMajor;
+            this.ghostBallScale = this.ghostBallScaleMajor;
+        }
+        
+        // Reset indices when switching scales
+        this.pegHitIndex = 0;
+        this.pegHitDirection = 1;
+        this.ghostBallHitIndex = 0;
+        this.ghostBallHitDirection = -1;
+    }
+    
+    /**
+     * Get track name for a given index (1-4)
+     * Returns the actual track name used in the audio system
+     * @param {number} index - Track index (1-4)
+     * @returns {string|null} Track name or null if not loaded
+     */
+    getTrackName(index) {
+        if (!this.activeMusic.loaded || !this.activeMusic.tracks || index < 1 || index > 4) {
+            return null;
+        }
+        const track = this.activeMusic.tracks[index - 1];
+        return track ? track.name : null;
     }
     
     /**

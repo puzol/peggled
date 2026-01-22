@@ -2,13 +2,14 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 
 export class Peg {
-    constructor(scene, physicsWorldWrapper, position = { x: 0, y: 0, z: 0 }, color = 0xff6b6b, pegMaterial = null, type = 'round', size = 'base') {
+    constructor(scene, physicsWorldWrapper, position = { x: 0, y: 0, z: 0 }, color = 0xff6b6b, pegMaterial = null, type = 'round', size = 'base', bounceType = 'normal') {
         this.scene = scene;
         this.physicsWorldWrapper = physicsWorldWrapper;
         this.color = color;
         this.hit = false;
         this.type = type; // 'round', 'rect', or 'dome'
         this.size = size; // 'small', 'base', or 'large'
+        this.bounceType = bounceType; // 'normal', 'dampened', 'no-bounce', 'super-bouncy'
         
         // Calculate actual size based on base size (0.09) and size multiplier
         const baseSize = 0.09;
@@ -64,27 +65,167 @@ export class Peg {
             geometry = new THREE.CircleGeometry(this.actualSize, 16);
         }
         
-        const material = new THREE.MeshBasicMaterial({
-            color: this.color,
-            side: THREE.DoubleSide // Ensure visible from both sides
-        });
+        // Create radial gradient material
+        const material = this.createRadialGradientMaterial();
         
         this.mesh = new THREE.Mesh(geometry, material);
         this.mesh.position.set(position.x, position.y, position.z);
         
         this.scene.add(this.mesh);
     }
+    
+    createRadialGradientMaterial() {
+        // Get bounce type color (50% outside)
+        // For 'normal' bounce type, use peg color instead of gray
+        let bounceColor = this.getColorForBounceType(this.bounceType);
+        if (this.bounceType === 'normal') {
+            bounceColor = this.color; // Use peg color for normal bounce type
+        }
+        // Get peg color (50% inside)
+        const pegColor = this.color;
+        
+        // Lighten colors to compensate for shader darkening
+        // Convert to RGB, lighten, then back to hex
+        const lightenColor = (hexColor, factor) => {
+            const r = ((hexColor >> 16) & 0xFF) * factor;
+            const g = ((hexColor >> 8) & 0xFF) * factor;
+            const b = (hexColor & 0xFF) * factor;
+            return ((Math.min(255, r) << 16) | (Math.min(255, g) << 8) | Math.min(255, b));
+        };
+        
+        // Lighten both colors by ~30% to compensate for shader darkening
+        const lightenedBounceColor = lightenColor(bounceColor, 1.3);
+        const lightenedPegColor = lightenColor(pegColor, 1.3);
+        
+        // Determine max distance based on peg type
+        // For round pegs: maxDist = 0.5 (radius)
+        // For rectangular pegs: maxDist = 0.707 (corner distance)
+        const maxDist = (this.type === 'round') ? 0.5 : 0.707;
+        
+        // Create shader material with radial gradient
+        // Convert hex numbers to proper Color objects
+        const bounceColorObj = new THREE.Color();
+        bounceColorObj.setHex(lightenedBounceColor);
+        const pegColorObj = new THREE.Color();
+        pegColorObj.setHex(lightenedPegColor);
+        
+        const material = new THREE.ShaderMaterial({
+            uniforms: {
+                bounceColor: { value: bounceColorObj },
+                pegColor: { value: pegColorObj },
+                transitionPoint: { value: 0.5 }, // 50% = outside, 50% = inside
+                maxDist: { value: maxDist } // Max distance for this peg type
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform vec3 bounceColor;
+                uniform vec3 pegColor;
+                uniform float transitionPoint;
+                uniform float maxDist;
+                varying vec2 vUv;
+                
+                void main() {
+                    // Calculate distance from center (0.5, 0.5) to current UV coordinate
+                    vec2 center = vec2(0.5, 0.5);
+                    float dist = distance(vUv, center);
+                    
+                    // Normalize distance: 0.0 at center, 1.0 at edge
+                    float normalizedDist = dist / maxDist;
+                    
+                    // Clamp to 0-1 range
+                    normalizedDist = clamp(normalizedDist, 0.0, 1.0);
+                    
+                    // Hard transition at transitionPoint (50% = 0.5)
+                    // Outside (normalizedDist > 0.5): bounceColor (50% of radius)
+                    // Inside (normalizedDist <= 0.5): pegColor (50% of radius)
+                    vec3 finalColor = normalizedDist > transitionPoint ? bounceColor : pegColor;
+                    
+                    gl_FragColor = vec4(finalColor, 1.0);
+                }
+            `,
+            side: THREE.DoubleSide
+        });
+        
+        return material;
+    }
+    
+    getColorForBounceType(bounceType) {
+        switch (bounceType) {
+            case 'dampened':
+                return 0x505050; // Darker grey
+            case 'no-bounce':
+                return 0x202020; // Very dark grey
+            case 'super-bouncy':
+                return 0xb01030; // Crimson
+            case 'normal':
+            default:
+                return 0x808080; // Regular grey
+        }
+    }
+    
+    setBounceType(bounceType) {
+        this.bounceType = bounceType;
+        
+        // Update visual material
+        if (this.mesh && this.mesh.material) {
+            // Lighten color function
+            const lightenColor = (hexColor, factor) => {
+                const r = ((hexColor >> 16) & 0xFF) * factor;
+                const g = ((hexColor >> 8) & 0xFF) * factor;
+                const b = (hexColor & 0xFF) * factor;
+                return ((Math.min(255, r) << 16) | (Math.min(255, g) << 8) | Math.min(255, b));
+            };
+            
+            if (this.mesh.material.uniforms) {
+                // For 'normal' bounce type, use peg color instead of gray
+                let bounceColor = this.getColorForBounceType(bounceType);
+                if (bounceType === 'normal') {
+                    bounceColor = this.color; // Use peg color for normal bounce type
+                }
+                // Lighten colors to compensate for shader darkening
+                const lightenedBounceColor = lightenColor(bounceColor, 1.3);
+                const lightenedPegColor = lightenColor(this.color, 1.3);
+                
+                this.mesh.material.uniforms.bounceColor.value.setHex(lightenedBounceColor);
+                this.mesh.material.uniforms.pegColor.value.setHex(lightenedPegColor);
+            } else {
+                // If material doesn't have uniforms, recreate it as shader
+                const oldMaterial = this.mesh.material;
+                this.mesh.material = this.createRadialGradientMaterial();
+                if (oldMaterial.dispose) {
+                    oldMaterial.dispose();
+                }
+            }
+        }
+        
+        // Update physics material
+        if (this.body) {
+            const newMaterial = this.physicsWorldWrapper.getPegMaterial(bounceType);
+            this.body.material = newMaterial;
+            if (this.body.userData) {
+                this.body.userData.bounceType = bounceType;
+            }
+        }
+    }
 
     createPhysicsBody(position, pegMaterial) {
-        const material = pegMaterial || new CANNON.Material({
-            friction: 0.3,
-            restitution: 0.7 // Match wall bounce
-        });
+        // Always use bounce type material - ignore provided pegMaterial to ensure correct bounce behavior
+        const material = this.physicsWorldWrapper.getPegMaterial(this.bounceType);
         
         this.body = new CANNON.Body({
             mass: 0, // Static body
             material: material
         });
+        
+        // Store bounce type in userData
+        this.body.userData = this.body.userData || {};
+        this.body.userData.bounceType = this.bounceType;
         
         if (this.type === 'round') {
             // Use sphere for round pegs
@@ -244,7 +385,26 @@ export class Peg {
                 newColor = 0x87ceeb; // Light blue
             }
             
-            this.mesh.material.color.setHex(newColor);
+            // Update material color
+            if (this.mesh.material && this.mesh.material.uniforms) {
+                // Shader material - lighten and update the peg color (inside 50%)
+                const lightenColor = (hexColor, factor) => {
+                    const r = ((hexColor >> 16) & 0xFF) * factor;
+                    const g = ((hexColor >> 8) & 0xFF) * factor;
+                    const b = (hexColor & 0xFF) * factor;
+                    return ((Math.min(255, r) << 16) | (Math.min(255, g) << 8) | Math.min(255, b));
+                };
+                const lightenedColor = lightenColor(newColor, 1.3);
+                this.mesh.material.uniforms.pegColor.value.setHex(lightenedColor);
+                
+                // Also update bounce color if it's normal (since normal uses peg color)
+                if (this.bounceType === 'normal') {
+                    this.mesh.material.uniforms.bounceColor.value.setHex(lightenedColor);
+                }
+            } else {
+                // Fallback for non-shader materials
+                this.mesh.material.color.setHex(newColor);
+            }
         } else {
         }
     }
@@ -263,7 +423,26 @@ export class Peg {
         } else {
             originalColor = this.color; // Blue (use stored color)
         }
-        this.mesh.material.color.setHex(originalColor);
+        // Update material color
+        if (this.mesh.material && this.mesh.material.uniforms) {
+            // Shader material - lighten and update the peg color (inside 50%)
+            const lightenColor = (hexColor, factor) => {
+                const r = ((hexColor >> 16) & 0xFF) * factor;
+                const g = ((hexColor >> 8) & 0xFF) * factor;
+                const b = (hexColor & 0xFF) * factor;
+                return ((Math.min(255, r) << 16) | (Math.min(255, g) << 8) | Math.min(255, b));
+            };
+            const lightenedColor = lightenColor(originalColor, 1.3);
+            this.mesh.material.uniforms.pegColor.value.setHex(lightenedColor);
+            
+            // Also update bounce color if it's normal (since normal uses peg color)
+            if (this.bounceType === 'normal') {
+                this.mesh.material.uniforms.bounceColor.value.setHex(lightenedColor);
+            }
+        } else {
+            // Fallback for non-shader materials
+            this.mesh.material.color.setHex(originalColor);
+        }
     }
 
     remove() {

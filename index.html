@@ -27,14 +27,14 @@
             background: #1a1a2e;
 
             @media (max-width: 1024px) {
-                min-height: calc(100vh + 1rem);
+                min-height: calc(100dvh + 1rem);
                 padding: .5rem 0;
             }
         }
 
         #game-container {
             width: 100vw;
-            height: 100vh;
+            height: 100dvh;
             position: relative;
             display: flex;
             align-items: center;
@@ -44,8 +44,8 @@
 
         #game-canvas-wrapper {
             position: relative;
-            width: min(100vw, calc(100vh * 4 / 3));
-            height: min(100vh, calc(100vw * 3 / 4));
+            width: min(100vw, calc(100dvh * 4 / 3));
+            height: min(100dvh, calc(100vw * 3 / 4));
             aspect-ratio: 4 / 3;
             background: #2a2a3e;
             box-shadow: 0 0 .2rem rgba(0, 0, 0, 0.5);
@@ -694,7 +694,7 @@
         #objects-modal {
             width: 90%;
             max-width: 12rem;
-            max-height: 90vh;
+            max-height: 90dvh;
             display: flex;
             flex-direction: column;
         }

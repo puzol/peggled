@@ -1045,6 +1045,43 @@
                 display: flex;
             }
         }
+
+        /* Analogue Stick for Mobile Touch Controls */
+        #analogue-stick {
+            position: absolute;
+            display: none;
+            pointer-events: none;
+            z-index: 200;
+        }
+
+        #analogue-stick.active {
+            display: block;
+        }
+
+        #analogue-stick-outer {
+            position: absolute;
+            width: 2rem;
+            height: 2rem;
+            border-radius: 50%;
+            border: 0.08rem solid rgba(255, 255, 255, 0.6);
+            background: rgba(0, 0, 0, 0.3);
+            transform: translate(-50%, -50%);
+            left: 0;
+            top: 0;
+        }
+
+        #analogue-stick-inner {
+            position: absolute;
+            width: 0.8rem;
+            height: 0.8rem;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.8);
+            border: 0.04rem solid rgba(255, 255, 255, 0.9);
+            transform: translate(-50%, -50%);
+            transition: none;
+            left: 50%;
+            top: 50%;
+        }
     </style>
 </head>
 <body>
@@ -1110,6 +1147,11 @@
                 <div id="next-power-display"></div>
                 <button id="play-again-button">Play Again</button>
                 <button id="play-again-new-seed-button">Play Again with the same layout</button>
+                <!-- Analogue Stick for Mobile Touch Controls -->
+                <div id="analogue-stick">
+                    <div id="analogue-stick-outer"></div>
+                    <div id="analogue-stick-inner"></div>
+                </div>
             </div>
         </div>
     </div>

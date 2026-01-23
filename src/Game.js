@@ -125,6 +125,16 @@ export class Game {
         this.mouseX = 0;
         this.mouseY = 0;
         
+        // Mobile touch controls
+        this.touchActive = false;
+        this.touchId = null;
+        this.analogueStick = null;
+        this.analogueStickOuter = null;
+        this.analogueStickInner = null;
+        this.stickOriginX = 0;
+        this.stickOriginY = 0;
+        this.stickMaxRadius = 0; // Will be set based on outer circle size
+        
         // Character system
         this.selectedCharacter = null;
         this.characters = [
@@ -222,6 +232,9 @@ export class Game {
         
         // Click handling
         this.setupClickHandler();
+        
+        // Mobile touch controls
+        this.setupTouchControls();
         
         // Set up keyboard controls for testing
         this.setupKeyboardControls();
@@ -578,6 +591,9 @@ export class Game {
         // Create trajectory guide
         this.createTrajectoryGuide();
         
+        // Initialize mobile touch controls
+        this.initTouchControls();
+        
         // Set up collision detection
         this.setupCollisionDetection();
         
@@ -755,6 +771,301 @@ export class Game {
         this.canvas.addEventListener('click', (event) => {
             this.handleClick(event);
         });
+    }
+    
+    initTouchControls() {
+        // Get analogue stick elements
+        const uiOverlay = this.container.querySelector('#ui-overlay');
+        if (uiOverlay) {
+            this.analogueStick = uiOverlay.querySelector('#analogue-stick');
+            this.analogueStickOuter = uiOverlay.querySelector('#analogue-stick-outer');
+            this.analogueStickInner = uiOverlay.querySelector('#analogue-stick-inner');
+            
+            if (this.analogueStickOuter) {
+                // Calculate max radius (half of outer circle size minus inner circle radius)
+                const outerSize = parseFloat(getComputedStyle(this.analogueStickOuter).width);
+                const innerSize = parseFloat(getComputedStyle(this.analogueStickInner).width);
+                this.stickMaxRadius = (outerSize - innerSize) / 2;
+            }
+        }
+    }
+    
+    setupTouchControls() {
+        // Touch event handlers for mobile aiming and shooting
+        this.canvas.addEventListener('touchstart', (event) => {
+            this.handleTouchStart(event);
+        }, { passive: false });
+        
+        this.canvas.addEventListener('touchmove', (event) => {
+            this.handleTouchMove(event);
+        }, { passive: false });
+        
+        this.canvas.addEventListener('touchend', (event) => {
+            this.handleTouchEnd(event);
+        }, { passive: false });
+        
+        this.canvas.addEventListener('touchcancel', (event) => {
+            this.handleTouchEnd(event);
+        }, { passive: false });
+    }
+    
+    handleTouchStart(event) {
+        // Don't handle touch if level editor is active and not in testing mode
+        if (this.levelEditor && this.levelEditor.isActive && !this.levelEditor.testingMode) {
+            return;
+        }
+        
+        // Only handle first touch
+        if (this.touchActive || event.touches.length === 0) {
+            return;
+        }
+        
+        const touch = event.touches[0];
+        const rect = this.canvas.getBoundingClientRect();
+        const touchX = touch.clientX - rect.left;
+        const touchY = touch.clientY - rect.top;
+        
+        // Check if touch is on UI elements (seed display, buttons, etc.)
+        const uiOverlay = this.container.querySelector('#ui-overlay');
+        if (uiOverlay) {
+            const elementsAtPoint = document.elementsFromPoint(touch.clientX, touch.clientY);
+            const isUITouch = elementsAtPoint.some(el => {
+                return el !== this.canvas && 
+                       el !== this.analogueStick &&
+                       el !== this.analogueStickOuter &&
+                       el !== this.analogueStickInner &&
+                       (uiOverlay.contains(el) || el.closest('#ui-overlay'));
+            });
+            
+            if (isUITouch) {
+                return; // Don't handle touch on UI elements
+            }
+        }
+        
+        event.preventDefault();
+        
+        this.touchActive = true;
+        this.touchId = touch.identifier;
+        
+        // Set stick origin at touch position
+        this.stickOriginX = touchX;
+        this.stickOriginY = touchY;
+        
+        // Show analogue stick
+        this.showAnalogueStick(touchX, touchY);
+        
+        // Initialize aim position at stick origin (no offset initially)
+        this.updateAimFromTouch(touchX, touchY);
+    }
+    
+    handleTouchMove(event) {
+        if (!this.touchActive || event.touches.length === 0) {
+            return;
+        }
+        
+        // Find the touch with matching ID
+        let touch = null;
+        for (let i = 0; i < event.touches.length; i++) {
+            if (event.touches[i].identifier === this.touchId) {
+                touch = event.touches[i];
+                break;
+            }
+        }
+        
+        if (!touch) {
+            return;
+        }
+        
+        event.preventDefault();
+        
+        const rect = this.canvas.getBoundingClientRect();
+        const touchX = touch.clientX - rect.left;
+        const touchY = touch.clientY - rect.top;
+        
+        // Update stick inner circle position
+        this.updateAnalogueStick(touchX, touchY);
+        
+        // Calculate aim position as if finger was at aim guide origin
+        this.updateAimFromTouch(touchX, touchY);
+    }
+    
+    handleTouchEnd(event) {
+        if (!this.touchActive) {
+            return;
+        }
+        
+        // Check if the touch that ended matches our active touch
+        let touchEnded = false;
+        if (event.changedTouches) {
+            for (let i = 0; i < event.changedTouches.length; i++) {
+                if (event.changedTouches[i].identifier === this.touchId) {
+                    touchEnded = true;
+                    break;
+                }
+            }
+        }
+        
+        if (!touchEnded && event.touches.length > 0) {
+            // Touch still active, just update position
+            return;
+        }
+        
+        event.preventDefault();
+        
+        // Hide analogue stick
+        this.hideAnalogueStick();
+        
+        // Shoot on touch release (if conditions are met)
+        if (this.balls.length === 0 && this.ballsRemaining > 0) {
+            // Create synthetic click event to trigger shooting
+            const rect = this.canvas.getBoundingClientRect();
+            const syntheticEvent = {
+                clientX: this.stickOriginX + rect.left,
+                clientY: this.stickOriginY + rect.top
+            };
+            this.handleClick(syntheticEvent);
+        }
+        
+        // Reset touch state
+        this.touchActive = false;
+        this.touchId = null;
+    }
+    
+    showAnalogueStick(x, y) {
+        if (!this.analogueStick) return;
+        
+        const uiOverlay = this.container.querySelector('#ui-overlay');
+        if (!uiOverlay) return;
+        
+        const overlayRect = uiOverlay.getBoundingClientRect();
+        const canvasRect = this.canvas.getBoundingClientRect();
+        
+        // Position stick relative to canvas position within overlay
+        const relativeX = x;
+        const relativeY = y;
+        
+        this.analogueStick.style.left = `${relativeX}px`;
+        this.analogueStick.style.top = `${relativeY}px`;
+        this.analogueStick.classList.add('active');
+        
+        // Reset inner circle to center
+        if (this.analogueStickInner) {
+            this.analogueStickInner.style.left = '50%';
+            this.analogueStickInner.style.top = '50%';
+        }
+    }
+    
+    updateAnalogueStick(touchX, touchY) {
+        if (!this.analogueStick || !this.analogueStickInner) return;
+        
+        // Calculate offset from stick origin
+        const dx = touchX - this.stickOriginX;
+        const dy = touchY - this.stickOriginY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        // Clamp to max radius
+        const clampedDistance = Math.min(distance, this.stickMaxRadius);
+        const angle = Math.atan2(dy, dx);
+        
+        // Calculate inner circle position (relative to outer circle center)
+        const offsetX = Math.cos(angle) * clampedDistance;
+        const offsetY = Math.sin(angle) * clampedDistance;
+        
+        // Update inner circle position (50% is center, add offset)
+        const outerSize = parseFloat(getComputedStyle(this.analogueStickOuter).width);
+        const innerSize = parseFloat(getComputedStyle(this.analogueStickInner).width);
+        const centerOffset = outerSize / 2;
+        
+        this.analogueStickInner.style.left = `${50 + (offsetX / outerSize) * 100}%`;
+        this.analogueStickInner.style.top = `${50 + (offsetY / outerSize) * 100}%`;
+    }
+    
+    hideAnalogueStick() {
+        if (this.analogueStick) {
+            this.analogueStick.classList.remove('active');
+        }
+    }
+    
+    updateAimFromTouch(touchX, touchY) {
+        // Calculate offset from stick origin (in screen pixels)
+        const dx = touchX - this.stickOriginX;
+        const dy = touchY - this.stickOriginY;
+        
+        // Convert screen offset to world coordinate offset
+        const rect = this.canvas.getBoundingClientRect();
+        // Normalize: screen coordinates to -1 to 1 range
+        const normalizedDx = (dx / rect.width) * 2;
+        const normalizedDy = -(dy / rect.height) * 2; // Flip Y axis (screen Y increases down, world Y increases up)
+        
+        // Convert to world coordinates (camera view is 12 units wide, 9 units tall)
+        const worldDx = normalizedDx * 6;
+        const worldDy = normalizedDy * 4.5;
+        
+        // Aim guide origin in world coordinates (spawn position)
+        const spawnX = 0;
+        const spawnY = 3.7;
+        
+        // Calculate target position as if finger movement was relative to spawn position
+        // This makes the aim work as if the finger was placed at the aim guide origin
+        const targetX = spawnX + worldDx;
+        const targetY = spawnY + worldDy;
+        
+        // Calculate direction from spawn to target
+        let aimDx = targetX - spawnX;
+        let aimDy = targetY - spawnY;
+        const distance = Math.sqrt(aimDx * aimDx + aimDy * aimDy);
+        
+        if (distance < 0.01) {
+            // Too close, don't update aim - use default straight down
+            this.mouseX = rect.width / 2;
+            this.mouseY = rect.height * 0.7; // Below center
+            if (this.balls.length === 0 && this.ballsRemaining > 0) {
+                this.updateTrajectoryGuide();
+            }
+            return;
+        }
+        
+        // Calculate angle in degrees
+        let angle = Math.atan2(aimDy, aimDx) * (180 / Math.PI);
+        if (angle < 0) {
+            angle += 360;
+        }
+        
+        // Apply angle limits (blocked from 10° to 170°)
+        const blockedStart = 10;
+        const blockedEnd = 170;
+        
+        if (angle > blockedStart && angle < blockedEnd) {
+            // Clamp to nearest boundary
+            if (angle < 90) {
+                angle = blockedStart;
+            } else {
+                angle = blockedEnd;
+            }
+        }
+        
+        // Convert clamped angle back to world coordinates
+        const angleRad = angle * (Math.PI / 180);
+        const clampedDx = Math.cos(angleRad);
+        const clampedDy = Math.sin(angleRad);
+        
+        // Calculate target position at a fixed distance from spawn
+        const aimDistance = 5;
+        const finalTargetX = spawnX + clampedDx * aimDistance;
+        const finalTargetY = spawnY + clampedDy * aimDistance;
+        
+        // Convert final target position back to screen coordinates for mouse position
+        const finalNormalizedX = finalTargetX / 6;
+        const finalNormalizedY = finalTargetY / 4.5;
+        
+        // Convert normalized coordinates to screen coordinates
+        this.mouseX = (finalNormalizedX + 1) * rect.width / 2;
+        this.mouseY = (1 - finalNormalizedY) * rect.height / 2;
+        
+        // Update trajectory guide
+        if (this.balls.length === 0 && this.ballsRemaining > 0) {
+            this.updateTrajectoryGuide();
+        }
     }
     
     handleMouseDown(event) {

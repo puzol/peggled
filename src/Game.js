@@ -128,6 +128,7 @@ export class Game {
         // Mobile touch controls
         this.touchActive = false;
         this.touchId = null;
+        this.touchRocketThrust = false; // Track if touch is for rocket thrust
         this.analogueStick = null;
         this.analogueStickOuter = null;
         this.analogueStickInner = null;
@@ -844,8 +845,50 @@ export class Game {
         
         event.preventDefault();
         
+        // Check if there's a rocket ball - if so, handle rocket thrust instead of aiming
+        const rocketBall = this.balls.find(ball => ball.isRocket && ball.rocketFuelRemaining > 0);
+        if (rocketBall && !rocketBall.rocketThrustActive) {
+            // Activate rocket thrust on touch (hold mode)
+            this.touchActive = true;
+            this.touchId = touch.identifier;
+            this.touchRocketThrust = true;
+            
+            // Reduce ball velocity to 1 when activating thrust (for better control)
+            const currentVel = rocketBall.body.velocity;
+            const currentSpeed = Math.sqrt(currentVel.x * currentVel.x + currentVel.y * currentVel.y);
+            if (currentSpeed > 1.0) {
+                // Normalize and scale to 1
+                const scale = 1.0 / currentSpeed;
+                rocketBall.body.velocity.set(currentVel.x * scale, currentVel.y * scale, 0);
+                // Update originalVelocity to match current velocity so bounces are based on actual speed
+                rocketBall.originalVelocity = { x: rocketBall.body.velocity.x, y: rocketBall.body.velocity.y, z: 0 };
+            }
+            
+            // Activate thrust
+            rocketBall.rocketThrustActive = true;
+            rocketBall.rocketThrustStartTime = performance.now() / 1000;
+            rocketBall.rocketThrustPower = 1.0; // Start at full power (no ramp up)
+            // Play thrust sound (looping)
+            if (this.audioManager) {
+                rocketBall.rocketThrustSound = this.audioManager.playSound('pegThrust', { volume: 0.7, loop: true });
+            }
+            return;
+        }
+        
+        // Check if there's an active bomb to manually detonate
+        if (this.bombs && this.bombs.length > 0 && this.balls.length === 0) {
+            // Manually detonate the first active bomb
+            const bomb = this.bombs[0];
+            if (bomb && !bomb.exploded) {
+                this.explodeBomb(bomb);
+                return;
+            }
+        }
+        
+        // Normal aiming mode
         this.touchActive = true;
         this.touchId = touch.identifier;
+        this.touchRocketThrust = false;
         
         // Set stick origin at touch position
         this.stickOriginX = touchX;
@@ -877,6 +920,11 @@ export class Game {
         }
         
         event.preventDefault();
+        
+        // If in rocket thrust mode, don't update aiming
+        if (this.touchRocketThrust) {
+            return;
+        }
         
         const rect = this.canvas.getBoundingClientRect();
         const touchX = touch.clientX - rect.left;
@@ -912,16 +960,52 @@ export class Game {
         
         event.preventDefault();
         
+        // Handle rocket thrust deactivation
+        if (this.touchRocketThrust) {
+            const rocketBall = this.balls.find(ball => ball.isRocket && ball.rocketFuelRemaining > 0);
+            if (rocketBall && rocketBall.rocketThrustActive) {
+                // Deactivate thrust
+                rocketBall.rocketThrustActive = false;
+                // Update originalVelocity to current velocity after thrust ends
+                // This ensures bounces are based on actual current speed, not original shot speed
+                const currentVel = rocketBall.body.velocity;
+                rocketBall.originalVelocity = { x: currentVel.x, y: currentVel.y, z: currentVel.z || 0 };
+                // Stop thrust sound
+                if (rocketBall.rocketThrustSound) {
+                    if (rocketBall.rocketThrustSound.stop) {
+                        // Web Audio API source
+                        rocketBall.rocketThrustSound.stop();
+                    } else if (rocketBall.rocketThrustSound.pause) {
+                        // HTML5 Audio element
+                        rocketBall.rocketThrustSound.pause();
+                        rocketBall.rocketThrustSound.currentTime = 0;
+                    }
+                    rocketBall.rocketThrustSound = null;
+                }
+                if (rocketBall.flameMesh) {
+                    rocketBall.flameMesh.visible = false;
+                    rocketBall.flameVisible = false;
+                }
+            }
+            
+            // Reset touch state
+            this.touchActive = false;
+            this.touchId = null;
+            this.touchRocketThrust = false;
+            return;
+        }
+        
         // Hide analogue stick
         this.hideAnalogueStick();
         
         // Shoot on touch release (if conditions are met)
         if (this.balls.length === 0 && this.ballsRemaining > 0) {
-            // Create synthetic click event to trigger shooting
+            // Use the current mouse position (updated by updateAimFromTouch) for shooting
+            // This ensures the ball shoots in the direction of the aim guide, not the initial touch
             const rect = this.canvas.getBoundingClientRect();
             const syntheticEvent = {
-                clientX: this.stickOriginX + rect.left,
-                clientY: this.stickOriginY + rect.top
+                clientX: this.mouseX + rect.left,
+                clientY: this.mouseY + rect.top
             };
             this.handleClick(syntheticEvent);
         }
@@ -929,6 +1013,7 @@ export class Game {
         // Reset touch state
         this.touchActive = false;
         this.touchId = null;
+        this.touchRocketThrust = false;
     }
     
     showAnalogueStick(x, y) {

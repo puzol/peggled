@@ -12,12 +12,17 @@ export default defineConfig(({ command }) => {
   const now = new Date();
   const buildTimestamp = now.toISOString().slice(0, 16).replace('T', ' '); // Format: YYYY-MM-DD HH:MM
   
+  // Generate build version for cache busting (timestamp-based hash)
+  const buildVersion = now.getTime().toString(36); // Base36 encoding of timestamp for shorter version string
+  
   return {
     base,
     
     define: {
       // Inject build timestamp as a constant
-      __BUILD_TIMESTAMP__: JSON.stringify(buildTimestamp)
+      __BUILD_TIMESTAMP__: JSON.stringify(buildTimestamp),
+      // Inject build version for cache busting
+      __BUILD_VERSION__: JSON.stringify(buildVersion)
     },
     
     server: {

@@ -853,6 +853,10 @@ export class Game {
             this.touchId = touch.identifier;
             this.touchRocketThrust = true;
             
+            // Update mouse position to touch position so rocket follows finger
+            this.mouseX = touchX;
+            this.mouseY = touchY;
+            
             // Reduce ball velocity to 1 when activating thrust (for better control)
             const currentVel = rocketBall.body.velocity;
             const currentSpeed = Math.sqrt(currentVel.x * currentVel.x + currentVel.y * currentVel.y);
@@ -921,15 +925,18 @@ export class Game {
         
         event.preventDefault();
         
-        // If in rocket thrust mode, don't update aiming
-        if (this.touchRocketThrust) {
-            return;
-        }
-        
         const rect = this.canvas.getBoundingClientRect();
         const touchX = touch.clientX - rect.left;
         const touchY = touch.clientY - rect.top;
         
+        // If in rocket thrust mode, update mouse position directly so rocket follows finger
+        if (this.touchRocketThrust) {
+            this.mouseX = touchX;
+            this.mouseY = touchY;
+            return;
+        }
+        
+        // Normal aiming mode - update stick and aim
         // Update stick inner circle position
         this.updateAnalogueStick(touchX, touchY);
         

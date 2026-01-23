@@ -136,6 +136,10 @@ export class Game {
         this.stickOriginY = 0;
         this.stickMaxRadius = 0; // Will be set based on outer circle size
         
+        // Page visibility pause state
+        this.visibilityPaused = false;
+        this.musicMutedByVisibility = false; // Track if music was muted due to visibility
+        
         // Character system
         this.selectedCharacter = null;
         this.characters = [
@@ -597,6 +601,9 @@ export class Game {
         
         // Set up collision detection
         this.setupCollisionDetection();
+        
+        // Set up page visibility handling (pause when minimized)
+        this.setupPageVisibility();
         
         this.startGameLoop();
     }
@@ -1227,6 +1234,81 @@ export class Game {
                 rocketBall.flameVisible = false;
             }
             event.preventDefault(); // Prevent any click event from firing
+        }
+    }
+    
+    setupPageVisibility() {
+        // Pause game and mute music when page becomes hidden (browser minimized, tab switched, etc.)
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // Page is hidden - pause game and mute music
+                this.pauseGameForVisibility();
+            } else {
+                // Page is visible - resume game and unmute music
+                this.resumeGameForVisibility();
+            }
+        });
+        
+        // Also handle page blur/focus for additional mobile browser support
+        window.addEventListener('blur', () => {
+            this.pauseGameForVisibility();
+        });
+        
+        window.addEventListener('focus', () => {
+            this.resumeGameForVisibility();
+        });
+    }
+    
+    pauseGameForVisibility() {
+        // Don't pause if already paused by visibility
+        if (this.visibilityPaused) {
+            return;
+        }
+        
+        this.visibilityPaused = true;
+        
+        // Pause the game
+        this.gamePaused = true;
+        
+        // Mute all music tracks (only if music is currently playing)
+        if (this.audioManager && this.audioManager.activeMusic && this.audioManager.activeMusic.loaded) {
+            // Check if any track is currently playing (not muted)
+            const hasUnmutedTracks = this.audioManager.activeMusic.tracks.some(track => !track.muted);
+            
+            if (hasUnmutedTracks) {
+                this.musicMutedByVisibility = true;
+                // Mute all active music tracks
+                this.audioManager.activeMusic.tracks.forEach(track => {
+                    if (!track.muted) {
+                        this.audioManager.setMusicTrackMuted(track.name, true);
+                    }
+                });
+            } else {
+                this.musicMutedByVisibility = false;
+            }
+        }
+    }
+    
+    resumeGameForVisibility() {
+        // Don't resume if not paused by visibility
+        if (!this.visibilityPaused) {
+            return;
+        }
+        
+        this.visibilityPaused = false;
+        
+        // Resume the game
+        this.gamePaused = false;
+        
+        // Unmute music tracks only if we muted them due to visibility
+        if (this.musicMutedByVisibility && this.audioManager && this.audioManager.activeMusic && this.audioManager.activeMusic.loaded) {
+            // Unmute all active music tracks (restore to their previous state)
+            this.audioManager.activeMusic.tracks.forEach(track => {
+                if (track.muted) {
+                    this.audioManager.setMusicTrackMuted(track.name, false);
+                }
+            });
+            this.musicMutedByVisibility = false;
         }
     }
     

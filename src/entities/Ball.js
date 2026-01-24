@@ -40,7 +40,7 @@ export class Ball {
             mass: 1,
             shape: shape,
             material: ballMaterial || new CANNON.Material({
-                friction: 0.3,
+                friction: 0, // No friction for ball
                 restitution: 0.7 // Bounciness
             }),
             // Enable continuous collision detection to prevent tunneling through objects

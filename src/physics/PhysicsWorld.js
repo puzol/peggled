@@ -41,7 +41,7 @@ export class PhysicsWorld {
             this.ballMaterial,
             this.wallMaterial,
             {
-                friction: 0.3,
+                friction: 0, // No friction for ball
                 restitution: 0.875 // Increased bounce by 25%
             }
         );
@@ -53,7 +53,7 @@ export class PhysicsWorld {
             this.ballMaterial,
             this.pegMaterial,
             {
-                friction: 0.3,
+                friction: 0, // No friction for ball
                 restitution: 0.875 // Increased bounce by 25%
             }
         );
@@ -65,7 +65,7 @@ export class PhysicsWorld {
             this.ballMaterial,
             this.characteristicNormalMaterial,
             {
-                friction: 0.3,
+                friction: 0, // No friction for ball
                 restitution: 0.875 // Normal bounce
             }
         );
@@ -76,7 +76,7 @@ export class PhysicsWorld {
             this.ballMaterial,
             this.characteristicDampenedMaterial,
             {
-                friction: 0.3,
+                friction: 0, // No friction for ball
                 restitution: 0.3 // Dampened bounce
             }
         );
@@ -87,7 +87,7 @@ export class PhysicsWorld {
             this.ballMaterial,
             this.characteristicNoBounceMaterial,
             {
-                friction: 0.3,
+                friction: 0, // No friction for ball
                 restitution: 0.0 // No bounce
             }
         );
@@ -98,7 +98,7 @@ export class PhysicsWorld {
             this.ballMaterial,
             this.characteristicSuperBouncyMaterial,
             {
-                friction: 0.3,
+                friction: 0, // No friction for ball
                 restitution: 1.2 // Super bouncy (can exceed 1.0 for energy gain)
             }
         );
@@ -110,7 +110,7 @@ export class PhysicsWorld {
             this.ballMaterial,
             this.pegNormalMaterial,
             {
-                friction: 0.3,
+                friction: 0, // No friction for ball
                 restitution: 0.875 // Normal bounce
             }
         );
@@ -121,7 +121,7 @@ export class PhysicsWorld {
             this.ballMaterial,
             this.pegDampenedMaterial,
             {
-                friction: 0.3,
+                friction: 0, // No friction for ball
                 restitution: 0.3 // Dampened bounce
             }
         );
@@ -132,7 +132,7 @@ export class PhysicsWorld {
             this.ballMaterial,
             this.pegNoBounceMaterial,
             {
-                friction: 0.3,
+                friction: 0, // No friction for ball
                 restitution: 0.0 // No bounce
             }
         );
@@ -143,7 +143,7 @@ export class PhysicsWorld {
             this.ballMaterial,
             this.pegSuperBouncyMaterial,
             {
-                friction: 0.3,
+                friction: 0, // No friction for ball
                 restitution: 1.2 // Super bouncy (can exceed 1.0 for energy gain)
             }
         );

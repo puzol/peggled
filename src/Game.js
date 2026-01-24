@@ -19,6 +19,7 @@ import { BuzzPower } from './characters/BuzzPower.js';
 import { MikeyPower } from './characters/MikeyPower.js';
 import { MaddamPower } from './characters/MaddamPower.js';
 import { ArkanoidPower } from './characters/ArkanoidPower.js';
+import { I8Power } from './characters/I8Power.js';
 import { LevelEditor } from './utils/LevelEditor.js';
 
 // Main game controller
@@ -184,6 +185,12 @@ export class Game {
                 name: 'Arkanoid',
                 power: 'Brick Breaker',
                 powerDescription: 'On green peg hit, bucket drops and a paddle rises. Bounce the ball off the paddle - first bounce removes gravity for 10 seconds!'
+            },
+            {
+                id: 'i8',
+                name: 'The i8',
+                power: 'I Ate',
+                powerDescription: 'On peg hit, the ball "eats" the peg and grows larger. When it exceeds 3x size, it explodes, hitting nearby pegs and launching upward!'
             }
         ];
         
@@ -195,6 +202,7 @@ export class Game {
         this.mikeyPower = new MikeyPower(this);
         this.maddamPower = new MaddamPower(this);
         this.arkanoidPower = new ArkanoidPower(this);
+        this.i8Power = new I8Power(this);
         this.levelEditor = new LevelEditor(this);
         
         // John the Gunner power system
@@ -221,6 +229,9 @@ export class Game {
         
         // Arkanoid power system
         this.arkanoidActive = false; // Flag for arkanoid power
+        
+        // i8 power system
+        this.i8Active = false; // Flag for i8 power
         
         
         // Perks
@@ -351,6 +362,12 @@ export class Game {
         const startButton = document.querySelector('#start-game-button');
         
         if (!selector || !optionsContainer || !startButton) return;
+        
+        // Clear existing character options (in case this is called multiple times)
+        optionsContainer.innerHTML = '';
+        
+        // Debug: Log characters array to verify i8 is included
+        console.log('[Character Selector] Setting up characters:', this.characters.map(c => c.id));
         
         // Create character option elements
         this.characters.forEach(character => {
@@ -1639,6 +1656,7 @@ export class Game {
             // Check if rocket should be active (based on power turns remaining, not just the flag)
             // Rocket is available if: has power turns AND is Buzz AND rocket was activated (flag is true)
             const isRocket = hasPower && this.selectedCharacter?.id === 'buzz' && this.rocketActive;
+            const isI8 = hasPower && this.selectedCharacter?.id === 'i8' && this.i8Active;
             
             // Check if mirror ball should be active (Mikey's power)
             const isMirrorBall = hasPower && this.selectedCharacter?.id === 'mikey';
@@ -1646,7 +1664,7 @@ export class Game {
             // Check if magnetic power should be active (Maddam's power)
             const isMagnetic = hasPower && this.selectedCharacter?.id === 'maddam' && this.magneticActive;
             
-            const whiteBall = this.spawnBall(spawnX, spawnY, spawnZ, originalVelocity, originalVelocity, false, isQuillShot, isRocket);
+            const whiteBall = this.spawnBall(spawnX, spawnY, spawnZ, originalVelocity, originalVelocity, false, isQuillShot, isRocket, isI8);
             
             // If mirror ball power is active, create ghost ball
             if (isMirrorBall && whiteBall) {
@@ -3020,7 +3038,7 @@ export class Game {
         }
     }
 
-    spawnBall(x, y, z, velocity = null, originalVelocity = null, isYellow = false, isQuillShot = false, isRocket = false) {
+    spawnBall(x, y, z, velocity = null, originalVelocity = null, isYellow = false, isQuillShot = false, isRocket = false, isI8 = false) {
         const ballMaterial = this.physicsWorld.getBallMaterial();
         const ball = new Ball(this.scene, this.physicsWorld, { x, y, z }, velocity, ballMaterial, isYellow);
         // Store original velocity for lucky clover perk
@@ -3059,6 +3077,11 @@ export class Game {
             ball.rocketFuelRestoreCount = 0; // Track how many times fuel has been restored for diminishing returns
             ball.rocketThrustSound = null; // Track sound source to stop it when thrust ends
             this.buzzPower.attachRocketVisual(ball);
+        }
+        
+        // Track if this is an i8 ball
+        if (isI8 && this.i8Power) {
+            this.i8Power.initializeBall(ball);
         }
         
         // Quill shot balls will have gravity counteracted in update loop (like rocket)
@@ -3634,15 +3657,67 @@ export class Game {
         // Check for ball/bomb-peg collision FIRST - this is the most important
         const peg = this.pegs.find(p => p.body === bodyA || p.body === bodyB);
         
+        // Check for ball-characteristic collision
+        const characteristic = this.characteristics.find(c => c.body === bodyA || c.body === bodyB);
+        
+        // Process characteristic collision logic BEFORE peg collision (if both exist, peg takes priority)
+        if (characteristic && ball && !peg) {
+            try {
+                // Fix collisions for rectangular/circular characteristics to prevent collision loss
+                // For rectangular: normalize corner collisions to use only one face
+                // For circular: handle large ball overlap to prevent physics confusion
+                // This must be done BEFORE clampBallVelocity to override physics response
+                let collisionNormalized = false;
+                if (ball.body) {
+                    if (characteristic.shape === 'rect') {
+                        collisionNormalized = this.normalizeCornerCollisionCharacteristic(ball, characteristic);
+                    } else if (characteristic.shape === 'circle') {
+                        collisionNormalized = this.normalizeRoundCharacteristicCollision(ball, characteristic);
+                    }
+                }
+                
+                // Clamp velocity after characteristic collision (unless collision was normalized, which already handled velocity)
+                if (!collisionNormalized) {
+                    this.clampBallVelocity(ball);
+                }
+            } catch (error) {
+                console.error('[Game] Error handling characteristic collision:', error);
+            }
+        }
+        
         // Process peg collision logic IMMEDIATELY if it's a ball-peg collision
         if (peg && ball) {
             try {
-                // Clamp velocity after peg collision
-                this.clampBallVelocity(ball);
+                // Fix collisions for rectangular/dome/round pegs to prevent collision loss
+                // For rectangular/dome: normalize corner collisions to use only one face
+                // For round: handle large ball overlap to prevent physics confusion
+                // This must be done BEFORE clampBallVelocity to override physics response
+                let collisionNormalized = false;
+                if (ball.body) {
+                    if (peg.type === 'rect' || peg.type === 'dome') {
+                        collisionNormalized = this.normalizeCornerCollision(ball, peg);
+                    } else if (peg.type === 'round') {
+                        collisionNormalized = this.normalizeRoundPegCollision(ball, peg);
+                    }
+                }
+                
+                // Clamp velocity after peg collision (unless collision was normalized, which already handled velocity)
+                if (!collisionNormalized) {
+                    this.clampBallVelocity(ball);
+                }
                 
                 // Arkanoid power: increase ball speed on peg bounce (only after pad bounce)
                 if (this.arkanoidPower && this.arkanoidActive && this.arkanoidPower.padBounced) {
                     this.arkanoidPower.onPegBounce(ball);
+                }
+                
+                // i8 power: ball "eats" pegs and grows larger
+                if (this.selectedCharacter?.id === 'i8' && this.i8Active && this.i8Power && ball.isI8) {
+                    const explosionTriggered = this.i8Power.onPegHit(ball, peg);
+                    if (explosionTriggered) {
+                        // Explosion already handled pegs, skip normal hit processing
+                        return;
+                    }
                 }
                 
                 // Check if this is a new hit (peg not already hit)
@@ -3762,6 +3837,12 @@ export class Game {
                         // Arkanoid: pad activation is handled in the power counter increment section above
                         // (onGreenPegHit is called there to check pad state before incrementing)
                         
+                        // The i8: activate power on green peg hit
+                        if (this.selectedCharacter?.id === 'i8') {
+                            this.i8Power.onGreenPegHit(peg);
+                            this.i8Active = true;
+                            this.updatePowerDisplay();
+                        }
                     }
                     
                     // Check for orange peg (goal progress) - only on first hit by ANY ball
@@ -3785,6 +3866,100 @@ export class Game {
                             const fuelAmount = Math.max(minFuel, baseFuel - (ball.rocketFuelRestoreCount - 1) * decreasePerRestore);
                             
                             ball.rocketFuelRemaining = Math.min(2.5, ball.rocketFuelRemaining + fuelAmount);
+                        }
+                    }
+                    
+                    // i8 power: if ball is >= 1.5x size, remove pegs immediately (like small pegs)
+                    // BUT: we need to process scoring BEFORE removing the peg
+                    if (this.selectedCharacter?.id === 'i8' && ball.isI8 && ball.currentRadius >= ball.originalRadius * 1.5) {
+                        // Process scoring FIRST before removing peg
+                        // This ensures free ball meter and score are updated
+                        try {
+                            // Handle special peg effects first
+                            if (peg.isOrange) {
+                                this.goalProgress++;
+                                this.updateGoalUI();
+                                this.updateOrangePegMultiplier();
+                            }
+                            
+                            // Handle purple peg scoring (flat 2000 points, no multiplier)
+                            const isPurplePeg = peg === this.purplePeg || this.temporaryPurplePegs.includes(peg);
+                            const isPeterGeneratedPurple = this.temporaryPurplePegs.includes(peg);
+                            
+                            if (isPurplePeg) {
+                                const purplePoints = 2000;
+                                let finalPoints;
+                                if (isPeterGeneratedPurple) {
+                                    // Peter's lucky bounce purple pegs get the multiplier
+                                    const totalMultiplier = this.orangePegMultiplier * this.purplePegMultiplier;
+                                    finalPoints = Math.floor(purplePoints * totalMultiplier);
+                                } else {
+                                    // Regular purple peg is flat (no multiplier)
+                                    finalPoints = purplePoints;
+                                }
+                                this.score += finalPoints;
+                                this.currentShotScore += finalPoints;
+                                
+                                // Activate 1.25x multiplier for following pegs
+                                this.purplePegMultiplier = 1.25;
+                                
+                                // Update UI
+                                this.updateScoreUI();
+                                this.updateFreeBallMeter();
+                                this.updateOrangePegMultiplier();
+                            } else {
+                                // Add score for regular pegs (with multiplier)
+                                const totalMultiplier = this.orangePegMultiplier * this.purplePegMultiplier;
+                                const basePoints = peg.pointValue || 300;
+                                const finalPoints = Math.floor(basePoints * totalMultiplier);
+                                this.score += finalPoints;
+                                this.currentShotScore += finalPoints;
+                                
+                                // Update UI
+                                this.updateScoreUI();
+                                this.updateFreeBallMeter();
+                            }
+                            
+                            // Check for free ball
+                            if (this.currentShotScore >= this.freeBallThreshold) {
+                                const freeBallsAwarded = Math.floor(this.currentShotScore / this.freeBallThreshold);
+                                this.ballsRemaining += freeBallsAwarded;
+                                this.currentShotScore = this.currentShotScore % this.freeBallThreshold;
+                                this.updateBallsRemainingUI();
+                                this.updateFreeBallMeter();
+                            }
+                        } catch (error) {
+                            console.error('[Game] Error processing score for large i8 ball peg hit:', error);
+                        }
+                        
+                        // Now remove the peg
+                        const pegIndex = this.pegs.indexOf(peg);
+                        if (pegIndex !== -1) {
+                            peg.remove();
+                            this.pegs.splice(pegIndex, 1);
+                            // Remove from ball's hitPegs array if present
+                            const ballPegIndex = ball.hitPegs.indexOf(peg);
+                            if (ballPegIndex !== -1) {
+                                ball.hitPegs.splice(ballPegIndex, 1);
+                            }
+                            // Remove from removal queue if present (ball.pegsToRemove)
+                            if (ball.pegsToRemove) {
+                                const queueIndex = ball.pegsToRemove.indexOf(peg);
+                                if (queueIndex !== -1) {
+                                    ball.pegsToRemove.splice(queueIndex, 1);
+                                    // Adjust removal index if we removed a peg that was before the current index
+                                    if (queueIndex < ball.pegRemoveIndex) {
+                                        ball.pegRemoveIndex--;
+                                    }
+                                }
+                            }
+                            
+                            // Also remove nearby already-hit pegs that are in the removal queue
+                            // This ensures the queue doesn't break and all nearby hit pegs are removed
+                            this.removeNearbyHitPegsFromQueue(ball, peg.body.position);
+                            
+                            // Skip rest of peg hit logic since peg is removed
+                            return;
                         }
                     }
                     
@@ -3951,7 +4126,38 @@ export class Game {
                             }, mirroredPeg);
                         }
                     }
-                } else if (wasAlreadyTracked) {
+                } else if (wasAlreadyTracked || peg.hit) {
+                    // Peg already hit - check if i8 ball should remove it
+                    // i8 power: if ball is >= 1.5x size, remove already-hit pegs immediately
+                    if (this.selectedCharacter?.id === 'i8' && ball.isI8 && ball.currentRadius >= ball.originalRadius * 1.5) {
+                        const pegIndex = this.pegs.indexOf(peg);
+                        if (pegIndex !== -1) {
+                            peg.remove();
+                            this.pegs.splice(pegIndex, 1);
+                            // Remove from ball's hitPegs array if present
+                            const ballPegIndex = ball.hitPegs.indexOf(peg);
+                            if (ballPegIndex !== -1) {
+                                ball.hitPegs.splice(ballPegIndex, 1);
+                            }
+                            // Remove from removal queue if present
+                            if (ball.pegsToRemove) {
+                                const queueIndex = ball.pegsToRemove.indexOf(peg);
+                                if (queueIndex !== -1) {
+                                    ball.pegsToRemove.splice(queueIndex, 1);
+                                    if (queueIndex < ball.pegRemoveIndex) {
+                                        ball.pegRemoveIndex--;
+                                    }
+                                }
+                            }
+                            
+                            // Also remove nearby already-hit pegs that are in the removal queue
+                            this.removeNearbyHitPegsFromQueue(ball, peg.body.position);
+                            
+                            // Skip rest of peg hit logic since peg is removed
+                            return;
+                        }
+                    }
+                    
                     // Peg already tracked - don't update last hit time or stuck check position
                     // We only care about new peg hits for stuck ball detection
                     // Also trigger lucky clover counter for already hit pegs
@@ -4987,6 +5193,398 @@ export class Game {
             return { used, total, limit };
         }
         return null;
+    }
+
+    /**
+     * Normalize corner collisions for rectangular/dome pegs
+     * When a ball hits a corner (multiple faces), calculate which face is primary
+     * and adjust velocity to only reflect off that face to prevent physics confusion
+     */
+    /**
+     * Normalize corner collisions for rectangular/dome pegs
+     * When a ball hits a corner (multiple faces), calculate which face is primary
+     * and adjust velocity to only reflect off that face to prevent physics confusion
+     * Returns true if corner collision was normalized (velocity was adjusted)
+     */
+    normalizeCornerCollision(ball, peg) {
+        if (!ball || !ball.body || !peg || !peg.body) return false;
+        
+        const ballPos = ball.body.position;
+        const ballVel = ball.body.velocity;
+        const pegPos = peg.body.position;
+        
+        // Calculate relative position
+        const relX = ballPos.x - pegPos.x;
+        const relY = ballPos.y - pegPos.y;
+        
+        // Get peg dimensions
+        const height = peg.actualSize * 2;
+        const width = height * 2; // 2:1 aspect ratio
+        const halfWidth = width / 2;
+        const halfHeight = height / 2;
+        
+        // Determine which face the ball is primarily hitting based on approach angle
+        // Use velocity direction to determine primary face (not just position)
+        const velX = ballVel.x;
+        const velY = ballVel.y;
+        const velMag = Math.sqrt(velX * velX + velY * velY);
+        
+        if (velMag < 0.01) return false; // Too slow, skip
+        
+        // Normalize velocity to get direction
+        const velDirX = velX / velMag;
+        const velDirY = velY / velMag;
+        
+        // Calculate which face is primary based on velocity direction
+        // If velocity is more horizontal, use vertical face (left/right)
+        // If velocity is more vertical, use horizontal face (top/bottom)
+        const absVelX = Math.abs(velDirX);
+        const absVelY = Math.abs(velDirY);
+        
+        let primaryNormalX = 0;
+        let primaryNormalY = 0;
+        
+        if (absVelX > absVelY) {
+            // More horizontal velocity - use left/right face
+            if (velDirX < 0) {
+                // Moving left, hit right face
+                primaryNormalX = 1;
+                primaryNormalY = 0;
+            } else {
+                // Moving right, hit left face
+                primaryNormalX = -1;
+                primaryNormalY = 0;
+            }
+        } else {
+            // More vertical velocity - use top/bottom face
+            if (velDirY < 0) {
+                // Moving down, hit top face
+                primaryNormalX = 0;
+                primaryNormalY = 1;
+            } else {
+                // Moving up, hit bottom face
+                primaryNormalX = 0;
+                primaryNormalY = -1;
+            }
+        }
+        
+        // Check if ball is near a corner (within corner threshold)
+        const cornerThreshold = Math.min(halfWidth, halfHeight) * 0.4; // 40% of smaller dimension
+        const distFromCornerX = Math.abs(Math.abs(relX) - halfWidth);
+        const distFromCornerY = Math.abs(Math.abs(relY) - halfHeight);
+        const isNearCorner = distFromCornerX < cornerThreshold && distFromCornerY < cornerThreshold;
+        
+        if (!isNearCorner) return false; // Not a corner collision, let physics handle it normally
+        
+        // If near corner, apply normalized bounce using only primary face
+        // Calculate reflection using only the primary face normal
+        // This prevents physics confusion from multiple simultaneous face contacts
+        const dot = velX * primaryNormalX + velY * primaryNormalY;
+        const reflectX = velX - 2 * dot * primaryNormalX;
+        const reflectY = velY - 2 * dot * primaryNormalY;
+        
+        // Apply restitution (bounciness) - get from contact material or use default
+        const restitution = 0.875; // Default bounce
+        ball.body.velocity.x = reflectX * restitution;
+        ball.body.velocity.y = reflectY * restitution;
+        
+        // Ensure body is awake and collision response is enabled
+        ball.body.wakeUp();
+        ball.body.collisionResponse = true;
+        
+        return true; // Collision was normalized
+    }
+
+    /**
+     * Normalize round peg collisions when ball is large
+     * Large balls can overlap significantly with round pegs, causing physics confusion
+     * This ensures proper collision response even when ball is much larger than peg
+     */
+    normalizeRoundPegCollision(ball, peg) {
+        if (!ball || !ball.body || !peg || !peg.body) return false;
+        
+        // Only normalize for large balls (i8 power or other large ball scenarios)
+        const ballRadius = ball.currentRadius || ball.body.shapes[0]?.radius || 0.1;
+        const pegRadius = peg.actualSize;
+        
+        // Check if ball is significantly larger than peg (could cause overlap issues)
+        if (ballRadius <= pegRadius * 1.5) return false; // Normal size, let physics handle it
+        
+        const ballPos = ball.body.position;
+        const ballVel = ball.body.velocity;
+        const pegPos = peg.body.position;
+        
+        // Calculate relative position and distance
+        const relX = ballPos.x - pegPos.x;
+        const relY = ballPos.y - pegPos.y;
+        const distance = Math.sqrt(relX * relX + relY * relY);
+        const minDistance = ballRadius + pegRadius;
+        
+        // Check if ball is overlapping or very close to peg (within 5% of min distance)
+        const overlapThreshold = minDistance * 0.05;
+        const isOverlapping = distance < minDistance + overlapThreshold;
+        
+        if (!isOverlapping) return false; // Not overlapping, let physics handle it normally
+        
+        // Calculate collision normal (from peg center to ball center)
+        if (distance < 0.001) return false; // Too close, can't determine direction
+        
+        const normalX = relX / distance;
+        const normalY = relY / distance;
+        
+        // Calculate reflection using the normal
+        const velX = ballVel.x;
+        const velY = ballVel.y;
+        const dot = velX * normalX + velY * normalY;
+        
+        // Only reflect if ball is moving towards peg (negative dot product)
+        if (dot >= 0) return false; // Moving away, let physics handle it
+        
+        // Calculate reflection
+        const reflectX = velX - 2 * dot * normalX;
+        const reflectY = velY - 2 * dot * normalY;
+        
+        // Apply restitution (bounciness)
+        const restitution = 0.875; // Default bounce
+        ball.body.velocity.x = reflectX * restitution;
+        ball.body.velocity.y = reflectY * restitution;
+        
+        // Push ball out of overlap if needed
+        if (distance < minDistance) {
+            const overlap = minDistance - distance;
+            const pushX = normalX * overlap * 1.1; // 1.1 for safety margin
+            const pushY = normalY * overlap * 1.1;
+            ball.body.position.x += pushX;
+            ball.body.position.y += pushY;
+        }
+        
+        // Ensure body is awake and collision response is enabled
+        ball.body.wakeUp();
+        ball.body.collisionResponse = true;
+        
+        return true; // Collision was normalized
+    }
+
+    /**
+     * Normalize corner collisions for rectangular characteristics
+     * Similar to normalizeCornerCollision for pegs, but adapted for characteristics
+     */
+    normalizeCornerCollisionCharacteristic(ball, characteristic) {
+        if (!ball || !ball.body || !characteristic || !characteristic.body) return false;
+        
+        const ballPos = ball.body.position;
+        const ballVel = ball.body.velocity;
+        const charPos = characteristic.body.position;
+        
+        // Calculate relative position
+        const relX = ballPos.x - charPos.x;
+        const relY = ballPos.y - charPos.y;
+        
+        // Get characteristic dimensions
+        const halfWidth = characteristic.size.width / 2;
+        const halfHeight = characteristic.size.height / 2;
+        
+        // Account for rotation
+        const cos = Math.cos(characteristic.rotation);
+        const sin = Math.sin(characteristic.rotation);
+        
+        // Transform relative position to local coordinate system
+        const localX = relX * cos + relY * sin;
+        const localY = -relX * sin + relY * cos;
+        
+        // Determine which face the ball is primarily hitting based on approach angle
+        // Use velocity direction to determine primary face (not just position)
+        const velX = ballVel.x;
+        const velY = ballVel.y;
+        const velMag = Math.sqrt(velX * velX + velY * velY);
+        
+        if (velMag < 0.01) return false; // Too slow, skip
+        
+        // Normalize velocity to get direction
+        const velDirX = velX / velMag;
+        const velDirY = velY / velMag;
+        
+        // Transform velocity to local coordinate system
+        const localVelX = velDirX * cos + velDirY * sin;
+        const localVelY = -velDirX * sin + velDirY * cos;
+        
+        // Calculate which face is primary based on velocity direction
+        const absVelX = Math.abs(localVelX);
+        const absVelY = Math.abs(localVelY);
+        
+        let primaryNormalX = 0;
+        let primaryNormalY = 0;
+        
+        if (absVelX > absVelY) {
+            // More horizontal velocity - use left/right face
+            if (localVelX < 0) {
+                // Moving left, hit right face
+                primaryNormalX = 1;
+                primaryNormalY = 0;
+            } else {
+                // Moving right, hit left face
+                primaryNormalX = -1;
+                primaryNormalY = 0;
+            }
+        } else {
+            // More vertical velocity - use top/bottom face
+            if (localVelY < 0) {
+                // Moving down, hit top face
+                primaryNormalX = 0;
+                primaryNormalY = 1;
+            } else {
+                // Moving up, hit bottom face
+                primaryNormalX = 0;
+                primaryNormalY = -1;
+            }
+        }
+        
+        // Transform normal back to world coordinates
+        const worldNormalX = primaryNormalX * cos - primaryNormalY * sin;
+        const worldNormalY = primaryNormalX * sin + primaryNormalY * cos;
+        
+        // Check if ball is near a corner (within corner threshold)
+        const cornerThreshold = Math.min(halfWidth, halfHeight) * 0.4; // 40% of smaller dimension
+        const distFromCornerX = Math.abs(Math.abs(localX) - halfWidth);
+        const distFromCornerY = Math.abs(Math.abs(localY) - halfHeight);
+        const isNearCorner = distFromCornerX < cornerThreshold && distFromCornerY < cornerThreshold;
+        
+        if (!isNearCorner) return false; // Not a corner collision, let physics handle it normally
+        
+        // If near corner, apply normalized bounce using only primary face
+        const dot = velX * worldNormalX + velY * worldNormalY;
+        const reflectX = velX - 2 * dot * worldNormalX;
+        const reflectY = velY - 2 * dot * worldNormalY;
+        
+        // Apply restitution (bounciness) - get from contact material or use default
+        const restitution = 0.875; // Default bounce
+        ball.body.velocity.x = reflectX * restitution;
+        ball.body.velocity.y = reflectY * restitution;
+        
+        // Ensure body is awake and collision response is enabled
+        ball.body.wakeUp();
+        ball.body.collisionResponse = true;
+        
+        return true; // Collision was normalized
+    }
+
+    /**
+     * Normalize round characteristic collisions when ball is large
+     * Similar to normalizeRoundPegCollision, but adapted for characteristics
+     */
+    normalizeRoundCharacteristicCollision(ball, characteristic) {
+        if (!ball || !ball.body || !characteristic || !characteristic.body) return false;
+        
+        const ballPos = ball.body.position;
+        const ballRadius = ball.currentRadius || ball.body.shapes[0]?.radius || 0.1;
+        const charPos = characteristic.body.position;
+        
+        // Get characteristic radius
+        let charRadius = 0.5; // Default
+        if (characteristic.size && typeof characteristic.size === 'object') {
+            if (typeof characteristic.size.radius === 'number' && !isNaN(characteristic.size.radius) && characteristic.size.radius > 0) {
+                charRadius = characteristic.size.radius;
+            } else if (typeof characteristic.size.width === 'number' && !isNaN(characteristic.size.width) && characteristic.size.width > 0) {
+                charRadius = characteristic.size.width / 2;
+            }
+        }
+        
+        // Calculate distance between centers
+        const dx = ballPos.x - charPos.x;
+        const dy = ballPos.y - charPos.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        // If ball is not overlapping or is too far, let physics handle
+        if (distance >= ballRadius + charRadius) return false;
+        
+        // Only normalize for large balls (i8 power or other large ball scenarios)
+        // For normal-sized balls, let physics handle it
+        if (ballRadius <= charRadius * 1.5) return false;
+        
+        // Calculate overlap depth
+        const overlap = (ballRadius + charRadius) - distance;
+        
+        // If there's overlap, push the ball out
+        if (overlap > 0) {
+            // Calculate normalized collision normal (from characteristic center to ball center)
+            const normalX = dx / distance;
+            const normalY = dy / distance;
+            
+            // Adjust ball position to resolve overlap
+            ball.body.position.x += normalX * overlap;
+            ball.body.position.y += normalY * overlap;
+            
+            // Calculate reflection using the normal
+            const ballVel = ball.body.velocity;
+            const dot = ballVel.x * normalX + ballVel.y * normalY;
+            const reflectX = ballVel.x - 2 * dot * normalX;
+            const reflectY = ballVel.y - 2 * dot * normalY;
+            
+            // Apply restitution (bounciness)
+            const restitution = 0.875; // Default bounce
+            ball.body.velocity.x = reflectX * restitution;
+            ball.body.velocity.y = reflectY * restitution;
+            
+            // Ensure body is awake and collision response is enabled
+            ball.body.wakeUp();
+            ball.body.collisionResponse = true;
+            
+            return true; // Collision was normalized
+        }
+        return false;
+    }
+
+    /**
+     * Remove nearby already-hit pegs from the removal queue when i8 ball is in auto-remove state
+     * This prevents the queue from breaking and ensures all nearby hit pegs are removed immediately
+     */
+    removeNearbyHitPegsFromQueue(ball, centerPosition) {
+        if (!ball || !ball.isI8 || ball.currentRadius < ball.originalRadius * 1.5) return;
+        if (!ball.pegsToRemove || ball.pegsToRemove.length === 0) return;
+        
+        const checkRadius = ball.currentRadius * 2; // Check within 2x ball radius
+        const centerX = centerPosition.x;
+        const centerY = centerPosition.y;
+        
+        // Find nearby already-hit pegs that are in the removal queue
+        const pegsToRemove = [];
+        for (const peg of ball.pegsToRemove) {
+            if (!peg || !peg.body || !peg.hit) continue;
+            
+            const pegPos = peg.body.position;
+            const dx = pegPos.x - centerX;
+            const dy = pegPos.y - centerY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance <= checkRadius) {
+                pegsToRemove.push(peg);
+            }
+        }
+        
+        // Remove found pegs from the game and queue
+        for (const peg of pegsToRemove) {
+            const pegIndex = this.pegs.indexOf(peg);
+            if (pegIndex !== -1) {
+                peg.remove();
+                this.pegs.splice(pegIndex, 1);
+            }
+            
+            // Remove from ball's hitPegs array if present
+            const ballPegIndex = ball.hitPegs.indexOf(peg);
+            if (ballPegIndex !== -1) {
+                ball.hitPegs.splice(ballPegIndex, 1);
+            }
+            
+            // Remove from removal queue
+            const queueIndex = ball.pegsToRemove.indexOf(peg);
+            if (queueIndex !== -1) {
+                ball.pegsToRemove.splice(queueIndex, 1);
+                // Adjust removal index if we removed a peg that was before the current index
+                if (queueIndex < ball.pegRemoveIndex) {
+                    ball.pegRemoveIndex--;
+                }
+            }
+        }
     }
 
     dispose() {

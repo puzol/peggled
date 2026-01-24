@@ -26,6 +26,35 @@ export class ArkanoidPower {
         this.ballsNeedingSpeedCorrection = new Set(); // Track balls that need speed correction next frame
         this.queuedActivation = false; // Track if pad should activate on next shot (green peg hit while already active)
         this.greenPegHitWhilePadActive = false; // Simple flag: was a green peg hit while pad was active?
+        this.overrideSpawnBall = false; // Flag to indicate if this power overrides ball spawning
+    }
+
+    /* 
+        * Standard Event list for all Power classes:
+    */
+
+    onInit(){
+
+    }
+
+    onBallShot(){
+        console.log("ArkanoidPower: onBallShot called");
+    }
+
+    onPegHit(){
+
+    }
+
+    onBallOutOfPlay(){
+
+    }
+
+    onLevelComplete(){
+
+    }
+
+    onReset(){
+
     }
 
     /*

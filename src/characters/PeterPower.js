@@ -46,11 +46,8 @@ export class PeterPower {
         if(this.powerActive && peg.hit == false) {
             if(this.luckyBounceCount % this.luckyBounceTarget == 0){
                 this.emojiEffect.showEmoji('🍀', { x: peg.body.position.x, y: peg.body.position.y, z: peg.body.position.z || 0 }, 0.5);
-                // this.luckyBounce(ball);
-            }
-
-            if(peg.isPurple){
-                console.log('is purple');
+                this.luckyBounce(ball);
+                this.generateTemporaryPurplePeg();
             }
         }
     }
@@ -69,6 +66,35 @@ export class PeterPower {
 
     onBallOutOfPlay(){
         this.luckyBounceCount = 0;
+
+        if(this.powerActive){
+            this.luckyBounceTriggeredPegs.clear();
+
+            this.temporaryPurplePegs.forEach(tempPeg => {
+                if (!tempPeg.hit) {
+                    // Reset to blue color if not hit - update shader uniforms (not material.color)
+                    tempPeg.color = 0x4a90e2;  // Reset stored color to standard blue
+                    tempPeg.isPurple = false;
+                    tempPeg.pointValue = 300;  // Reset to base value (blue peg value)
+                    
+                    if (tempPeg.mesh.material && tempPeg.mesh.material.uniforms) {
+                        // Lighten color to compensate for shader darkening (same as purple setting)
+                        const lightenColor = (hexColor, factor) => {
+                            const r = ((hexColor >> 16) & 0xFF) * factor;
+                            const g = ((hexColor >> 8) & 0xFF) * factor;
+                            const b = (hexColor & 0xFF) * factor;
+                            return ((Math.min(255, r) << 16) | (Math.min(255, g) << 8) | Math.min(255, b));
+                        };
+                        const lightenedBlue = lightenColor(0x4a90e2, 1.3);  // Lighten standard blue
+                        tempPeg.mesh.material.uniforms.pegColor.value.setHex(lightenedBlue);
+                        // Also update bounce color if it's normal (since normal uses peg color)
+                        if (tempPeg.bounceType === 'normal') {
+                            tempPeg.mesh.material.uniforms.bounceColor.value.setHex(lightenedBlue);
+                        }
+                    }
+                }
+            });
+        }
     }
 
     onLevelComplete(){
@@ -78,7 +104,6 @@ export class PeterPower {
     }
 
     onReset(){
-        console.log('PeterPower: onReset called');
         return;
     }
 
@@ -118,6 +143,7 @@ export class PeterPower {
      * Generate a temporary purple peg (only lasts for current turn)
      */
     generateTemporaryPurplePeg() {
+
         // Find all blue pegs (not orange, not green, not hit, not already purple)
         const bluePegs = this.game.pegs.filter(peg => 
             !peg.isOrange && 
@@ -156,7 +182,7 @@ export class PeterPower {
         }
         
         // Add to temporary purple pegs array
-        this.game.temporaryPurplePegs.push(newPurplePeg);
+        this.temporaryPurplePegs.push(newPurplePeg);
     }
 
     /**
@@ -165,7 +191,6 @@ export class PeterPower {
     reset() {
         // Power state is managed by Game.js
         // Clear lucky bounce tracking for new ball
-        this.luckyBounceTriggeredPegs.clear();
     }
 }
 

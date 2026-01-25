@@ -60,8 +60,7 @@ export class Game {
         // Purple peg system
         this.purplePegMultiplier = 1.0; // Multiplier from purple peg (1.5x after hitting purple peg)
         this.purplePeg = null; // Reference to the current purple peg
-        this.temporaryPurplePegs = []; // Purple pegs created by Peter's lucky bounces (only last for current turn)
-        
+
         // Orange peg multiplier system
         this.orangePegMultiplier = 1.0; // Base multiplier from orange peg progress (2x at 40%, 3x at 60%, 5x at 80%, 10x at 90%)
         
@@ -73,6 +72,10 @@ export class Game {
         this.ballSpawnX = 0;
         this.ballSpawnY = 3.7;
         this.ballSpawnZ = 0;
+
+        // Ball reset timer
+        this.ballBaseResetTime = 5; // seconds
+        this.ballResetTime = 5; // seconds
         
         // FPS cap for determinism (target frame rate)
         this.targetFPS = 60; // Can be increased to 120 if needed for hitreg
@@ -143,13 +146,13 @@ export class Game {
         // Character system
         this.selectedCharacter = null;
         this.characters = [
-            // {
-            //     id: 'peter',
-            //     name: 'Peter the Leprechaun',
-            //     powerName: 'Lucky Clover',
-            //     power: PeterPower,
-            //     powerDescription: 'Every 3rd peg hit bounces the ball with 75% of original shot momentum and generates a purple peg'
-            // },
+            {
+                id: 'peter',
+                name: 'Peter the Leprechaun',
+                powerName: 'Lucky Clover',
+                power: PeterPower,
+                powerDescription: 'Every 3rd peg hit bounces the ball with 75% of original shot momentum and generates a purple peg'
+            },
             // {
             //     id: 'john',
             //     name: 'John, the Gunner',
@@ -204,9 +207,6 @@ export class Game {
         this.activePower = null; // Currently active power system instance
 
         this.levelEditor = new LevelEditor(this);
-        
-        // Arkanoid power system
-        this.arkanoidActive = false; // Flag for arkanoid power
 
         // Seeded RNG system - will be initialized in startGame() after seed input is checked
         this.rng = null;
@@ -536,10 +536,7 @@ export class Game {
         this.setupPhysics();
         this.setupLighting();
         this.setupResizeHandler();
-        
-        // Initialize emoji effects (needs scene, camera, renderer)
-        this.emojiEffect = new EmojiEffect(this.scene, this.camera, this.renderer);
-        
+
         // Audio manager is created in constructor, so it already exists
         // Preload sounds (only if not already loaded)
         if (this.audioManager) {
@@ -577,7 +574,6 @@ export class Game {
         this.updateBallsRemainingUI();
         this.updateScoreUI();
         this.updateGoalUI();
-        this.updatePowerTurnsUI();
         
         // Hide play again buttons initially
         this.hidePlayAgainButton();
@@ -596,6 +592,8 @@ export class Game {
         this.setupPageVisibility();
         
         this.startGameLoop();
+
+        this.activePower.onInit(); // Call onInit for the power
     }
 
     setupScene() {
@@ -758,11 +756,6 @@ export class Game {
         // Use mousedown for bomb detonation and rocket thrust (immediate response)
         this.canvas.addEventListener('mousedown', (event) => {
             this.handleMouseDown(event);
-        });
-        
-        // Use mouseup for stopping rocket thrust (hold mode)
-        this.canvas.addEventListener('mouseup', (event) => {
-            this.handleMouseUp(event);
         });
         
         // Use click for shooting new ball
@@ -1243,7 +1236,7 @@ export class Game {
             // Convert to 2D world coordinates
             // Camera view is 12 units wide (-6 to 6), 9 units tall (-4.5 to 4.5)
             targetX = normalizedX * 6;
-            targetY = normalizedY * 4.5;
+            targetY = normalizedY * 4.5 + 0.5; // Slight offset to account for spawn height
         }
         
         // Calculate direction from spawn point to mouse position
@@ -1338,25 +1331,11 @@ export class Game {
         
         // Check if power is available for this shot BEFORE decrementing
         const hasPower = this.powerTurnsRemaining > 0;
-        
-        // Decrement power turns after shot is taken (if power was available)
-        if (hasPower) {
-            this.powerTurnsRemaining--;
-            this.updatePowerTurnsUI();
-            this.updatePowerDisplay();
-            
-            
-            // Disable powers when counter reaches 0
-            if (this.powerTurnsRemaining === 0) {
-                this.selectedPower = null;
-                this.powerQueue = [];
-                this.updatePowerDisplay();
-            }
-        }
 
-        // Call power's onBallShot for any special logic
-        if (this.activePower) {
-            this.activePower.onBallShot();
+        // Decrement balls remaining and update UI (unless in editor testing mode - unlimited balls)
+        if (!(this.levelEditor && this.levelEditor.testingMode)) {
+            this.ballsRemaining--;
+            this.updateBallsRemainingUI();
         }
 
         // Spawn the ball (unless power overrides)
@@ -1415,7 +1394,7 @@ export class Game {
             
             // Convert to world coordinates
             targetX = normalizedX * 6;
-            targetY = normalizedY * 4.5;
+            targetY = normalizedY * 4.5 + 0.5; // Slight offset to account for spawn height
         }
         
         // Spawn position (same as in handleClick)
@@ -1561,28 +1540,9 @@ export class Game {
             this.goalElement.textContent = `Goal: ${this.goalProgress}/${this.goalTarget}`;
         }
     }
-    
-    updatePowerTurnsUI() {
-        if (this.powerTurnsElement) {
-            this.powerTurnsElement.textContent = `Power: ${this.powerTurnsRemaining}`;
-        }
-    }
-    
-    consumePower() {
-        // Remove current power from queue and set next one
-        if (this.powerQueue.length > 0) {
-            this.powerQueue.shift();
-            // Set next power in queue as current
-            this.selectedPower = this.powerQueue.length > 0 ? this.powerQueue[0] : null;
-            this.updatePowerDisplay();
-        } else {
-            this.selectedPower = null;
-            this.updatePowerDisplay();
-        }
-    }
-    
     updateFreeBallMeter() {
         if (this.freeBallMeterFill) {
+            // Calculate progress
             const progress = Math.min(100, (this.currentShotScore / this.freeBallThreshold) * 100);
             this.freeBallMeterFill.style.width = `${progress}%`;
         }
@@ -1637,6 +1597,7 @@ export class Game {
     
     restartGame() {
         // Hide play again buttons
+        this.activePower.onReset();
         this.hidePlayAgainButton();
         this.hidePlayAgainNewSeedButton();
         
@@ -1669,7 +1630,6 @@ export class Game {
             this.powerQueue = [];
         }
         this.selectedPower = null;
-        this.updatePowerDisplay();
         
         // Reset RNG to initial seed for deterministic replay
         if (this.rng) {
@@ -1702,7 +1662,6 @@ export class Game {
         this.updateBallsRemainingUI();
         this.updateScoreUI();
         this.updateGoalUI();
-        this.updatePowerTurnsUI();
         this.updateFreeBallMeter();
         this.updateOrangePegMultiplier();
         
@@ -1712,6 +1671,7 @@ export class Game {
     
     restartGameWithNewSeed() {
         // Hide play again buttons
+        this.activePower.onReset();
         this.hidePlayAgainButton();
         this.hidePlayAgainNewSeedButton();
         
@@ -1741,16 +1701,11 @@ export class Game {
             // Set seed input to current seed so it will be reused
             seedInput.value = this.currentSeed.toString();
         }
-        
-        // Clear roulette queue and power queue on restart
-        if (this.rouletteQueue) {
-            this.rouletteQueue = [];
-        }
+
         if (this.powerQueue) {
             this.powerQueue = [];
         }
         this.selectedPower = null;
-        this.updatePowerDisplay();
         
         // Reset game state (seed will be reused when user starts new game)
         this.ballsRemaining = 10;
@@ -1778,7 +1733,6 @@ export class Game {
         this.updateBallsRemainingUI();
         this.updateScoreUI();
         this.updateGoalUI();
-        this.updatePowerTurnsUI();
         this.updateFreeBallMeter();
         this.updateOrangePegMultiplier();
         
@@ -1872,6 +1826,7 @@ export class Game {
     }
     
     assignPurplePeg() {
+
         // Remove purple status from previous purple peg (if any)
         if (this.purplePeg && !this.purplePeg.hit) {
             // Reset to blue color if not hit
@@ -2012,6 +1967,7 @@ export class Game {
                 const pegBounceType = pegData.bounceType || 'normal';
                 
                 const peg = new Peg(
+                    this,
                     this.scene,
                     this.physicsWorld,
                     { x: roundedX, y: roundedY, z: 0 },
@@ -2350,11 +2306,8 @@ export class Game {
                 if (!collisionNormalized) {
                     this.clampBallVelocity(ball);
                 }
-                
-                // Arkanoid power: increase ball speed on peg bounce (only after pad bounce)
-                if (this.arkanoidPower && this.arkanoidActive && this.arkanoidPower.padBounced) {
-                    this.arkanoidPower.onPegBounce(ball);
-                }
+
+                this.activePower.onPegHit(peg, ball);
                 
                 // Check if this is a new hit (peg not already hit)
                 const isNewHit = !peg.hit;
@@ -2365,28 +2318,7 @@ export class Game {
             if (isNewHit) {
                 try {
                     peg.onHit();
-                    
-                    // Arkanoid power: remove pegs immediately when hit (if auto-remove is enabled)
-                    if (this.arkanoidPower && this.arkanoidPower.padActive && this.arkanoidPower.autoRemovePegs) {
-                        // Check both arkanoidActive flag and padActive to ensure auto-remove works
-                        if (!this.arkanoidActive) {
-                            // Ensure flag is set if pad is active
-                            this.arkanoidActive = true;
-                        }
-                        const pegIndex = this.pegs.indexOf(peg);
-                        if (pegIndex !== -1) {
-                            peg.remove();
-                            this.pegs.splice(pegIndex, 1);
-                            // Remove from ball's hitPegs array if present
-                            const ballPegIndex = ball.hitPegs.indexOf(peg);
-                            if (ballPegIndex !== -1) {
-                                ball.hitPegs.splice(ballPegIndex, 1);
-                            }
-                            // Skip rest of peg hit logic since peg is removed
-                            return;
-                        }
-                    }
-                    
+
                     // Play peg hit sound
                     if (this.audioManager) {
                         this.audioManager.playPegHit();
@@ -2398,6 +2330,13 @@ export class Game {
                         this.updateGoalUI();
                         this.updateOrangePegMultiplier();
                     }
+                    if (peg.isGreen) {
+                        this.activePower.onGreenPegHit(peg);
+                    }
+
+                    // if(peg.isPurple) {
+                    //     this.assignPurplePeg();
+                    // }
                     
                     // Small pegs (small round, small rectangular, etc.) are removed immediately after collision
                     // This applies to all small pegs regardless of type, but AFTER special peg actions
@@ -2464,70 +2403,69 @@ export class Game {
             }
             
             if (!wasAlreadyTracked) {
-                    try {
-                        if (!ball.hitPegs) {
-                            ball.hitPegs = [];
-                        }
+                try {
+                    if (!ball.hitPegs) {
+                        ball.hitPegs = [];
+                    }
+                    
+                    ball.hitPegs.push(peg);
+                } catch (error) {
+                    // Continue anyway - don't let tracking errors stop processing
+                }
+                
+                // Check if this is the purple peg (main purple peg or temporary purple peg)
+                const isPurplePeg = peg === this.purplePeg;
+
+                try {
+                    if (isPurplePeg) {
+                        // Activate 1.25x multiplier for following pegs
+                        this.purplePegMultiplier = 1.25;
                         
-                        ball.hitPegs.push(peg);
-                    } catch (error) {
-                        // Continue anyway - don't let tracking errors stop processing
-                    }
-                    
-                    // Check if this is the purple peg (main purple peg or temporary purple peg)
-                    const isPurplePeg = peg === this.purplePeg || this.temporaryPurplePegs.includes(peg);
-                    const isPeterGeneratedPurple = this.temporaryPurplePegs.includes(peg); // Peter's lucky bounce generated purple peg
-                    
-                    try {
-                        if (isPurplePeg) {
-                            // Activate 1.25x multiplier for following pegs
-                            this.purplePegMultiplier = 1.25;
-                            
-                            // Update multiplier display
-                            this.updateOrangePegMultiplier();
-                            
-                            // Calculate points: Peter's generated purple pegs get multiplier, regular purple peg is flat
-                            const purplePoints = 2000;
-                            let finalPoints;
-                            if (isPeterGeneratedPurple) {
-                                // Peter's lucky bounce purple pegs get the multiplier
-                                const totalMultiplier = this.orangePegMultiplier * this.purplePegMultiplier;
-                                finalPoints = Math.floor(purplePoints * totalMultiplier);
-                            } else {
-                                // Regular purple peg is flat (no multiplier)
-                                finalPoints = purplePoints;
-                            }
-                            this.score += finalPoints;
-                            this.currentShotScore += finalPoints;
-                            
-                            // Ensure purple peg color changes to darker shade (onHit should handle this, but ensure it)
-                            peg.mesh.material.color.setHex(0x9370db); // Medium purple (darker when hit)
-                        } else {
-                            // Add score for regular pegs (after multiplier is activated)
+                        // Update multiplier display
+                        this.updateOrangePegMultiplier();
+                        
+                        // Calculate points: Peter's generated purple pegs get multiplier, regular purple peg is flat
+                        const purplePoints = 2000;
+                        let finalPoints;
+                        if (isPeterGeneratedPurple) {
+                            // Peter's lucky bounce purple pegs get the multiplier
                             const totalMultiplier = this.orangePegMultiplier * this.purplePegMultiplier;
-                            const basePoints = peg.pointValue || 300;
-                            const finalPoints = Math.floor(basePoints * totalMultiplier);
-                            this.score += finalPoints;
-                            this.currentShotScore += finalPoints;
+                            finalPoints = Math.floor(purplePoints * totalMultiplier);
+                        } else {
+                            // Regular purple peg is flat (no multiplier)
+                            finalPoints = purplePoints;
                         }
-                        } catch (error) {
-                        // ERROR in purple check / score calculation
-                        // Re-throw to be caught by outer try-catch
-                        throw error;
+                        this.score += finalPoints;
+                        this.currentShotScore += finalPoints;
+                        
+                        // Ensure purple peg color changes to darker shade (onHit should handle this, but ensure it)
+                        peg.mesh.material.color.setHex(0x9370db); // Medium purple (darker when hit)
+                    } else {
+                        // Add score for regular pegs (after multiplier is activated)
+                        const totalMultiplier = this.orangePegMultiplier * this.purplePegMultiplier;
+                        const basePoints = peg.pointValue || 300;
+                        const finalPoints = Math.floor(basePoints * totalMultiplier);
+                        this.score += finalPoints;
+                        this.currentShotScore += finalPoints;
                     }
-                    // Update UI
-                    this.updateScoreUI();
+                    } catch (error) {
+                    // ERROR in purple check / score calculation
+                    // Re-throw to be caught by outer try-catch
+                    throw error;
+                }
+                // Update UI
+                this.updateScoreUI();
+                this.updateFreeBallMeter();
+                
+                // Check for free ball
+                if (this.currentShotScore >= this.freeBallThreshold) {
+                    const freeBallsAwarded = Math.floor(this.currentShotScore / this.freeBallThreshold);
+                    this.ballsRemaining += freeBallsAwarded;
+                    this.currentShotScore = this.currentShotScore % this.freeBallThreshold;
+                    this.updateBallsRemainingUI();
                     this.updateFreeBallMeter();
-                    
-                    // Check for free ball
-                    if (this.currentShotScore >= this.freeBallThreshold) {
-                        const freeBallsAwarded = Math.floor(this.currentShotScore / this.freeBallThreshold);
-                        this.ballsRemaining += freeBallsAwarded;
-                        this.currentShotScore = this.currentShotScore % this.freeBallThreshold;
-                        this.updateBallsRemainingUI();
-                        this.updateFreeBallMeter();
-                    }
-                } 
+                }
+            } 
                 
             // Return early after processing peg collision - don't check walls/bucket
             return;
@@ -2791,11 +2729,13 @@ export class Game {
                     ball.body.wakeUp();
                 }
             });
+
+            if (this.activePower.powerActive){
+                this.activePower.update(currentTime, roundedDeltaTime / 1000); // Convert to seconds
+            }
             
             // Update emoji effects
-            if (this.emojiEffect) {
-                this.emojiEffect.update(currentTime);
-            }
+            this.activePower.onAnimate(currentTime, roundedDeltaTime);
             
             // Update bucket
             if (this.bucket) {
@@ -2813,22 +2753,6 @@ export class Game {
             
             this.balls.forEach(ball => {
                 ball.update();
-
-                if (ball.explosionHitPegs && ball.explosionHitPegs.length > 0 && ball.explosionTime) {
-                    const timeSinceExplosion = currentTimeSeconds - ball.explosionTime;
-                    if (timeSinceExplosion >= explosionTimerDuration) {
-                        // Remove pegs hit by explosion after 5 seconds
-                        ball.explosionHitPegs.forEach(peg => {
-                            const pegIndex = this.pegs.indexOf(peg);
-                            if (pegIndex !== -1) {
-                                peg.remove();
-                                this.pegs.splice(pegIndex, 1);
-                            }
-                        });
-                        // Clear the array so we don't remove them again
-                        ball.explosionHitPegs = [];
-                    }
-                }
                 
                 // Stuck check: peg pattern detection (primary) + fallback checks
                 // Initialize tracking if missing
@@ -2941,7 +2865,8 @@ export class Game {
                 const patternCheckPassed = hasEnoughPegsHit && stuckPatternDetected && ball.stuckPatternCount >= 2;
                 const velocityCheckPassed = hasEnoughPegsHit && timeSinceHighVelocity >= 1.0;
                 // 5-second check: If ball hasn't hit a NEW peg in 5 seconds, it's stuck (or 2 seconds if Arkanoid active)
-                const spawnCheckPassed = timeSinceSpawn;
+                const stuckTimerDuration = this.ballResetTime;
+                const spawnCheckPassed = timeSinceSpawn >= stuckTimerDuration;
                 
                 // Stuck check logging removed - checks run silently
                 
@@ -3053,10 +2978,6 @@ export class Game {
                         this.pegs.splice(i, 1);
                     }
                 }
-                
-                // Disable lucky clover if no more power turns (only when all balls are removed)
-                if (this.powerTurnsRemaining === 0) {
-                }
             } else if (ballsToRemove.length > 0) {
                 // Some balls were removed but others remain - just clean up visuals, don't remove pegs
                 ballsToRemove.forEach(ball => {
@@ -3079,6 +3000,8 @@ export class Game {
                 
                 // Check if game is over (no balls left or all orange pegs cleared)
                 this.checkGameOver();
+
+                this.activePower.onBallOutOfPlay();
             }
             
             // Render

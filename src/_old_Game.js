@@ -4468,9 +4468,11 @@ export class Game {
             }
             
             // Update emoji effects
-            if (this.emojiEffect) {
-                this.emojiEffect.update(currentTime);
-            }
+            // if (this.emojiEffect) {
+            //     this.emojiEffect.update(currentTime);
+            // }
+            console.log(this.activePower);
+            this.activePower.onAnimate(currentTime, roundedDeltaTime);
             
             // Update bucket
             if (this.bucket) {
@@ -5629,7 +5631,6 @@ export class Game {
             this.spikes.forEach(spike => spike.remove());
             this.spikes = [];
         }
-        
         
         // Clean up Three.js resources
         if (this.renderer) {

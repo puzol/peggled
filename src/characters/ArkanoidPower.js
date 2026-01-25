@@ -12,6 +12,7 @@ export class ArkanoidPower {
         this.game = game;
         this.pad = null;
         this.padBody = null;
+        this.powerActive = false; // Track if power is currently active
         this.padActive = false;
         this.padBounced = false; // Track if ball has bounced off pad
         this.timerActive = false;
@@ -27,6 +28,7 @@ export class ArkanoidPower {
         this.queuedActivation = false; // Track if pad should activate on next shot (green peg hit while already active)
         this.greenPegHitWhilePadActive = false; // Simple flag: was a green peg hit while pad was active?
         this.overrideSpawnBall = false; // Flag to indicate if this power overrides ball spawning
+        this.ballPowerResetTime = .03; // Reduced ball reset time while Arkanoid power is active
     }
 
     /* 
@@ -34,33 +36,16 @@ export class ArkanoidPower {
     */
 
     onInit(){
-
+        this.game.powerTurnsElement.style = 'display: none;'; // Hide power turns UI
     }
 
     onBallShot(){
-        console.log("ArkanoidPower: onBallShot called");
+        return;
     }
 
-    onPegHit(){
-
+    onPegHit(peg, ball){
+        this.onPegBounce(ball);
     }
-
-    onBallOutOfPlay(){
-
-    }
-
-    onLevelComplete(){
-
-    }
-
-    onReset(){
-
-    }
-
-    /*
-        * Handle green peg hit - activate pad immediately (like Spikey's spikes)
-        * If pad is already active in the same shot, queue activation for next shot
-    */
     onGreenPegHit(peg) {
         
         if (!this.padActive) {
@@ -87,16 +72,33 @@ export class ArkanoidPower {
         }
     }
 
+    onBallOutOfPlay(){
+        return;
+    }
+
+    onLevelComplete(){
+        return;
+    }
+
+    onReset(){
+        this.game.powerTurnsElement.style = 'display: block;'; // Show power turns UI
+    }
+
+    onAnimate(currentTime, deltaTime){
+        return;
+    }
+    
+
     /*
         * Activate the pad (called immediately on green peg hit)
     */
     activatePad() {
-        
         if (this.padActive) { // If pad is already active, don't do anything
             return;
         }
         
         this.padActive = true;
+        this.powerActive = true;
         this.padBounced = false;            // Reset pad bounce flag
         this.ballBouncedBeforeOut = false;
         this.previousBallCount = 0;
@@ -115,23 +117,7 @@ export class ArkanoidPower {
             this.timerUI.textContent = this.baseTimerValue;
         }
         
-        // Remove all pegs that are waiting for 5-second timer (explosionHitPegs)
-        // This clears any pegs that were hit by explosions but haven't been removed yet
-        if (this.game.balls) {
-            this.game.balls.forEach(ball => {
-                if (ball.explosionHitPegs && ball.explosionHitPegs.length > 0) {
-                    ball.explosionHitPegs.forEach(peg => {
-                        const pegIndex = this.game.pegs.indexOf(peg);
-                        if (pegIndex !== -1) {
-                            peg.remove();
-                            this.game.pegs.splice(pegIndex, 1);
-                        }
-                    });
-                    // Clear the array
-                    ball.explosionHitPegs = [];
-                }
-            });
-        }
+        this.game.ballResetTime = this.ballPowerResetTime; // Reduce ball reset time while Arkanoid power is available
     }
 
     /**
@@ -259,24 +245,6 @@ export class ArkanoidPower {
         
         return clampedX;
     }
-
-    /**
-     * Update pad position based on mouse (using same method as editor)
-     */
-    updatePadPosition() {
-        if (!this.padActive || !this.pad || !this.padBody) {
-            return;
-        }
-        
-        const clampedX = this.getPadXPosition();
-        const padY = -4.0;
-        
-        this.pad.position.x = clampedX;
-        this.pad.position.y = padY;
-        this.padBody.position.x = clampedX;
-        this.padBody.position.y = padY;
-    }
-
 
     /**
      * Check for ball-pad collision and handle bounce
@@ -521,6 +489,8 @@ export class ArkanoidPower {
         if (this.game) {
             this.game.arkanoidActive = false;
         }
+
+        this.game.ballResetTime = this.game.ballBaseResetTime; // Restore normal ball reset time
     }
 
     /**
@@ -603,7 +573,7 @@ export class ArkanoidPower {
     /**
      * Update pad and check collisions (called from Game.js animate loop)
      */
-    update(deltaTime) {
+    update(currentTime, deltaTime) {
         if (!this.padActive) {
             return;
         }

@@ -2730,6 +2730,7 @@ export class LevelEditor {
             import('../entities/Peg.js').then(({ Peg }) => {
                 const pegMaterial = this.game.physicsWorld.getPegMaterial();
                 const peg = new Peg(
+                    this.game,
                     this.game.scene,
                     this.game.physicsWorld,
                     { x: roundedX, y: roundedY, z: 0 },
@@ -2834,6 +2835,7 @@ export class LevelEditor {
                             
                             // Create new peg with same properties as source peg
                             const peg = new Peg(
+                                this.game,
                                 this.game.scene,
                                 this.game.physicsWorld,
                                 { x: roundedX, y: roundedY, z: 0 }, // Will be repositioned by rearrangePegs
@@ -4532,6 +4534,7 @@ export class LevelEditor {
                 this.originalPegs.forEach(pegData => {
                     // Restore peg with preserved type, size, and bounceType
                     const peg = new Peg(
+                        this.game,
                         this.game.scene,
                         this.game.physicsWorld,
                         { x: pegData.x, y: pegData.y, z: pegData.z || 0 },
@@ -4972,6 +4975,7 @@ export class LevelEditor {
                                 
                                 // Create peg at the position specified in containedPegs
                                 const peg = new Peg(
+                                    this.game,
                                     this.game.scene,
                                     this.game.physicsWorld,
                                     { x: pegX, y: pegY, z: pegZ },
@@ -5177,6 +5181,7 @@ export class LevelEditor {
                     const rotation = pegData.rotation || 0;
                     
                     const peg = new Peg(
+                        this.game,
                         this.game.scene,
                         this.game.physicsWorld,
                         { x: roundedX, y: roundedY, z: pegData.z || 0 },
@@ -5896,6 +5901,7 @@ export class LevelEditor {
                     if (!sourcePeg || !sourcePeg.body) return;
                     
                     const peg = new Peg(
+                        this.game,
                         this.game.scene,
                         this.game.physicsWorld,
                         { x: roundedX, y: roundedY, z: 0 },
@@ -6006,6 +6012,7 @@ export class LevelEditor {
                     const { Peg } = await import('../entities/Peg.js');
                     const pegMaterial = this.game.physicsWorld.getPegMaterial();
                     mirrorCopy = new Peg(
+                        this.game,
                         this.game.scene,
                         this.game.physicsWorld,
                         { x: roundedX, y: roundedY, z: 0 },
@@ -6356,6 +6363,7 @@ export class LevelEditor {
                 
                 const pegMaterial = this.game.physicsWorld.getPegMaterial();
                 const mirrorPeg = new Peg(
+                    this.game,
                     this.game.scene,
                     this.game.physicsWorld,
                     { x: mirrorPegX, y: mirrorPegY, z: 0 },

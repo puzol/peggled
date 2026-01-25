@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 
 export class Peg {
-    constructor(scene, physicsWorldWrapper, position = { x: 0, y: 0, z: 0 }, color = 0xff6b6b, pegMaterial = null, type = 'round', size = 'base', bounceType = 'normal') {
+    constructor(game, scene, physicsWorldWrapper, position = { x: 0, y: 0, z: 0 }, color = 0xff6b6b, pegMaterial = null, type = 'round', size = 'base', bounceType = 'normal') {
+        this.game = game;
         this.scene = scene;
         this.physicsWorldWrapper = physicsWorldWrapper;
         this.color = color;
@@ -405,8 +406,8 @@ export class Peg {
                 // Fallback for non-shader materials
                 this.mesh.material.color.setHex(newColor);
             }
-        } else {
-        }
+            this.game.activePower.onPegHit(this, null);
+        } 
     }
 
     // Reset peg to unhit state (for testing)

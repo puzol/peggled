@@ -1,3 +1,5 @@
+import { EmojiEffect } from '../utils/EmojiEffect.js';
+
 /**
  * Peter the Leprechaun - Lucky Clover Power
  * On green peg hit: activates lucky clover power for 3 turns
@@ -9,21 +11,91 @@ export class PeterPower {
         this.game = game;
         // Track which pegs have already triggered lucky bounce for current 3-hit cycle
         this.luckyBounceTriggeredPegs = new Set();
+        this.powerActive = false;
+        this.powerCount = 0;
+        this.luckyBounceCount = 0;
+        this.luckyBounceTarget = 3;
+        this.emojiEffect = null;
+        this.temporaryPurplePegs = [];
     }
 
-    /**
-     * Handle green peg hit - activate lucky clover power
-     */
+    /* 
+        * Standard Event list for all Power classes:
+    */
+
+    onInit(){
+        this.emojiEffect = new EmojiEffect(this.game.scene, this.game.camera, this.game.renderer);
+    }
+
+    onBallShot(){
+        if(this.powerCount > 0){
+            this.powerActive = true;
+        } else {
+            this.powerActive = false;
+        }
+
+        if(this.powerCount > 0){
+            this.powerCount--;
+            this.updatePowerTurnsUI();
+        }
+    }
+
+    onPegHit(peg, ball){
+        this.luckyBounceCount++;
+
+        if(this.powerActive && peg.hit == false) {
+            if(this.luckyBounceCount % this.luckyBounceTarget == 0){
+                this.emojiEffect.showEmoji('🍀', { x: peg.body.position.x, y: peg.body.position.y, z: peg.body.position.z || 0 }, 0.5);
+                // this.luckyBounce(ball);
+            }
+
+            if(peg.isPurple){
+                console.log('is purple');
+            }
+        }
+    }
+    
     onGreenPegHit(peg) {
-        // Just add power turns - power activates on shot, not on green peg hit
-        this.game.powerTurnsRemaining += 3;
-        this.game.updatePowerTurnsUI();
-        this.game.updatePowerDisplay();
+        this.powerCount += 3;
+        this.updatePowerTurnsUI();
+        // this.game.updatePowerDisplay();
         
         // Show clover emoji at peg position
-        const pegPos = peg.body.position;
-        if (this.game.emojiEffect) {
-            this.game.emojiEffect.showEmoji('🍀', { x: pegPos.x, y: pegPos.y, z: pegPos.z || 0 }, 0.5);
+        // let pegPos = peg.body.position;
+        if (this.emojiEffect) {
+            this.emojiEffect.showEmoji('🍀', { x: peg.body.position.x, y: peg.body.position.y, z: peg.body.position.z || 0 }, 0.5);
+        }
+    }
+
+    onBallOutOfPlay(){
+        this.luckyBounceCount = 0;
+    }
+
+    onLevelComplete(){
+        this.powerActive = false;
+        this.powerCount = 0;
+        this.updatePowerTurnsUI();
+    }
+
+    onReset(){
+        console.log('PeterPower: onReset called');
+        return;
+    }
+
+    update(){
+        return;
+    }
+
+    onAnimate(currentTime, deltaTime){
+        if (this.emojiEffect) {
+            this.emojiEffect.update(currentTime);
+        }
+    }
+    
+    updatePowerTurnsUI() {
+        
+        if (this.game.powerTurnsElement) {
+            this.game.powerTurnsElement.textContent = `Power: ${this.powerCount}`;
         }
     }
 
@@ -31,98 +103,15 @@ export class PeterPower {
      * Handle peg hit during lucky clover - check if it's the 3rd hit
      * Returns true if lucky bounce was applied
      */
-    handleLuckyCloverBounce(ball, peg) {
-        // Check if lucky clover is enabled (either via luckyClover.enabled or luckyCloverEnabled flag)
-        if (!this.game.luckyClover || (!this.game.luckyClover.enabled && !this.game.luckyCloverEnabled)) {
-            return false;
-        }
-
-        const hitCount = ball.hitPegs.length; // Total hits including this one
-        const isLuckyHit = hitCount % 3 === 0;
-
-        if (isLuckyHit) {
-            // Check if this peg has already triggered lucky bounce for this 3-hit cycle
-            const pegId = `${peg.body.position.x}_${peg.body.position.y}`;
-            if (this.luckyBounceTriggeredPegs.has(pegId)) {
-                return false; // Already triggered for this peg in this cycle
-            }
+    luckyBounce(ball){
+        const currentVel = ball.body.velocity;
+        const currentSpeed = Math.sqrt(currentVel.x * currentVel.x + currentVel.y * currentVel.y);
             
-            // Every 3rd hit is lucky - use flat bounce velocity 
-            // Use current direction but set speed to flat value
-            const currentVel = ball.body.velocity;
-            const currentSpeed = Math.sqrt(currentVel.x * currentVel.x + currentVel.y * currentVel.y);
-            
-            if (currentSpeed > 0) {
-                // Preserve direction, set speed to 6.5
-                const normalizedX = currentVel.x / currentSpeed;
-                const normalizedY = currentVel.y / currentSpeed;
-                const bounceSpeed = 6.5;
-                
-                ball.body.velocity.set(normalizedX * bounceSpeed, normalizedY * bounceSpeed, 0);
-                
-                // Mark this peg as having triggered lucky bounce
-                this.luckyBounceTriggeredPegs.add(pegId);
-
-                // Show clover emoji at peg position
-                const pegPos = peg.body.position;
-                if (this.game.emojiEffect) {
-                    this.game.emojiEffect.showEmoji('🍀', { x: pegPos.x, y: pegPos.y, z: pegPos.z || 0 }, 0.5);
-                }
-                
-                // Generate a new temporary purple peg on lucky bounce
-                this.generateTemporaryPurplePeg();
-                
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Handle lucky clover for already hit pegs (when ball bounces back)
-     */
-    handleLuckyCloverBounceAlreadyHit(ball, peg) {
-        // Check if lucky clover is enabled (either via luckyClover.enabled or luckyCloverEnabled flag)
-        if (!this.game.luckyClover || (!this.game.luckyClover.enabled && !this.game.luckyCloverEnabled)) {
-            return false;
-        }
-
-        const hitCount = ball.hitPegs.length;
-        if (hitCount % 3 === 0) {
-            // Check if this peg has already triggered lucky bounce for this 3-hit cycle
-            const pegId = `${peg.body.position.x}_${peg.body.position.y}`;
-            if (this.luckyBounceTriggeredPegs.has(pegId)) {
-                return false; // Already triggered for this peg in this cycle
-            }
-            
-            // Use flat bounce velocity (10)
-            // Use current direction but set speed to flat value
-            const currentVel = ball.body.velocity;
-            const currentSpeed = Math.sqrt(currentVel.x * currentVel.x + currentVel.y * currentVel.y);
-            
-            if (currentSpeed > 0) {
-                // Preserve direction, set speed to 10
-                const normalizedX = currentVel.x / currentSpeed;
-                const normalizedY = currentVel.y / currentSpeed;
-                const bounceSpeed = 10;
-                
-                ball.body.velocity.set(normalizedX * bounceSpeed, normalizedY * bounceSpeed, 0);
-                
-                // Mark this peg as having triggered lucky bounce
-                this.luckyBounceTriggeredPegs.add(pegId);
-
-                const pegPos = peg.body.position;
-                if (this.game.emojiEffect) {
-                    this.game.emojiEffect.showEmoji('🍀', { x: pegPos.x, y: pegPos.y, z: pegPos.z || 0 }, 0.5);
-                }
-                
-                // Generate a new temporary purple peg on lucky bounce
-                this.generateTemporaryPurplePeg();
-                
-                return true;
-            }
-        }
-        return false;
+        const normalizedX = currentVel.x / currentSpeed;
+        const normalizedY = currentVel.y / currentSpeed;
+        const bounceSpeed = 5.5;
+        
+        ball.body.velocity.set(normalizedX * bounceSpeed, normalizedY * bounceSpeed, 0);
     }
     
     /**

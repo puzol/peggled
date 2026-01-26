@@ -6,9 +6,19 @@ export class PhysicsWorld {
             gravity: new CANNON.Vec3(0, -9.82, 0) // Standard gravity
         });
         
-        // Set up solver for better stability
+        // Set up solver for better stability and collision detection
         this.world.broadphase = new CANNON.NaiveBroadphase();
-        this.world.solver.iterations = 10;
+        // Increase solver iterations for better constraint resolution (helps with collision loss)
+        this.world.solver.iterations = 20; // Increased from 10 (try 20 → 30 if needed)
+        // Tighter tolerance for more accurate constraint solving
+        this.world.solver.tolerance = 1e-4; // Smaller tolerance can help with edge cases
+        
+        // Fixed timestep accumulator for precise physics stepping
+        // Using 120 Hz (1/120) for good balance between accuracy and performance
+        // With massive FPS headroom, we can afford many more substeps
+        this.fixedTimeStep = 1 / 120; // 120 Hz physics update
+        this.maxSubSteps = 15; // Increased for better collision detection with fast-moving objects
+        this.accumulator = 0; // Accumulator for fixed timestep pattern
         
         // Create materials
         this.createMaterials();
@@ -241,16 +251,29 @@ export class PhysicsWorld {
     }
 
     update(deltaTime) {
-        // Step the physics simulation with smaller fixed timestep for better collision detection
-        // Smaller timestep = more frequent updates = less chance of tunneling through objects
-        // 1/180 = 0.00555 seconds (180 Hz physics update rate) - increased for better collision detection
-        const fixedTimeStep = 1 / 180;
-        // Increase maxSubSteps to allow more substeps per frame for fast-moving objects
-        // This prevents the ball from skipping through pegs when moving quickly
-        const maxSubSteps = 30;
-        // Round deltaTime to 3 decimals for determinism before passing to physics
-        const roundedDeltaTime = Math.round(deltaTime * 1000) / 1000;
-        this.world.step(fixedTimeStep, roundedDeltaTime, maxSubSteps);
+        // Fixed timestep with accumulator pattern for precise physics stepping
+        // This prevents collision loss by ensuring consistent, small timesteps
+        // Clamp deltaTime to prevent large frame spikes from causing issues
+        const clampedDeltaTime = Math.min(0.05, deltaTime); // Max 50ms per frame
+        const roundedDeltaTime = Math.round(clampedDeltaTime * 1000) / 1000; // Round to 3 decimals for determinism
+        
+        // Add to accumulator
+        this.accumulator += roundedDeltaTime;
+        
+        // Step physics with fixed timestep, allowing multiple substeps per frame
+        // This ensures fast-moving objects don't skip through colliders
+        let substeps = 0;
+        while (this.accumulator >= this.fixedTimeStep && substeps < this.maxSubSteps) {
+            this.world.step(this.fixedTimeStep);
+            this.accumulator -= this.fixedTimeStep;
+            substeps++;
+        }
+        
+        // If accumulator gets too large (spike), clamp it to prevent physics lag
+        // This prevents the "spiral of death" where physics can't catch up
+        if (this.accumulator > this.fixedTimeStep * this.maxSubSteps) {
+            this.accumulator = this.fixedTimeStep * this.maxSubSteps;
+        }
     }
 
     addBody(body) {

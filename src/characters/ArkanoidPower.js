@@ -50,6 +50,7 @@ export class ArkanoidPower {
     onPegHit(peg, ball){
         this.onPegBounce(ball);
     }
+
     onGreenPegHit(peg) {
         
         if (!this.padActive) {
@@ -77,6 +78,7 @@ export class ArkanoidPower {
     }
 
     onBallOutOfPlay(){
+        console.log('ball out of play');
         return;
     }
 

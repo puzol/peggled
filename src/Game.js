@@ -2343,7 +2343,9 @@ export class Game {
                     
                     // Small pegs (small round, small rectangular, etc.) are removed immediately after collision
                     // This applies to all small pegs regardless of type, but AFTER special peg actions
-                    if (peg.size === 'small') {
+                    // Also applies to ALL pegs when I8 power is active (all pegs behave like small pegs)
+                    const isI8PowerActive = this.activePower && this.activePower.powerActive && this.selectedCharacter?.id === 'i8';
+                    if (peg.size === 'small' || isI8PowerActive) {
                         const pegIndex = this.pegs.indexOf(peg);
                         if (pegIndex !== -1) {
                             peg.remove();

@@ -2,10 +2,12 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 
 export class Ball {
-    constructor(scene, physicsWorldWrapper, position = { x: 0, y: 5, z: 0 }, velocity = null, ballMaterial = null, isYellow = false) {
+    constructor(game, scene, physicsWorldWrapper, position = { x: 0, y: 5, z: 0 }, velocity = null, ballMaterial = null, isYellow = false) {
+        this.game = game;
         this.scene = scene;
         this.physicsWorldWrapper = physicsWorldWrapper;
         this.isYellow = isYellow;
+        this.ballRadius = this.game.ballRadius; 
         
         // Visual representation (Three.js)
         this.createMesh(position);
@@ -18,9 +20,8 @@ export class Ball {
     }
 
     createMesh(position) {
-        // Pure white circle for 2D - reduced by 50% (0.2 * 0.5 = 0.1)
         // Yellow for bonus balls (spread shot, rapid shot)
-        const geometry = new THREE.CircleGeometry(0.1, 16);
+        const geometry = new THREE.CircleGeometry(this.ballRadius, 16);
         const material = new THREE.MeshBasicMaterial({
             color: this.isYellow ? 0xffff00 : 0xffffff // Yellow or white
         });
@@ -34,8 +35,7 @@ export class Ball {
     }
 
     createPhysicsBody(position, velocity, ballMaterial) {
-        // Reduced by 50% (0.2 * 0.5 = 0.1)
-        const shape = new CANNON.Sphere(0.1);
+        const shape = new CANNON.Sphere(this.ballRadius);
         this.body = new CANNON.Body({
             mass: 1,
             shape: shape,

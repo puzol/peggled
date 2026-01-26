@@ -40,6 +40,10 @@ export class PeterPower {
         }
     }
 
+    ballInPlay(){
+        return;
+    }
+
     onPegHit(peg, ball){
         this.luckyBounceCount++;
 
@@ -55,10 +59,8 @@ export class PeterPower {
     onGreenPegHit(peg) {
         this.powerCount += 3;
         this.updatePowerTurnsUI();
-        // this.game.updatePowerDisplay();
         
         // Show clover emoji at peg position
-        // let pegPos = peg.body.position;
         if (this.emojiEffect) {
             this.emojiEffect.showEmoji('🍀', { x: peg.body.position.x, y: peg.body.position.y, z: peg.body.position.z || 0 }, 0.5);
         }
@@ -191,6 +193,7 @@ export class PeterPower {
     reset() {
         // Power state is managed by Game.js
         // Clear lucky bounce tracking for new ball
+        return;
     }
 }
 

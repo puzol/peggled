@@ -38,6 +38,7 @@ export class Game {
         this.animationFrameId = null;
         
         // Game state
+        this.ballRadius = 0.1; // Default ball radius
         this.balls = [];
         this.pegs = [];
         this.characteristics = []; // Array of characteristic objects
@@ -194,14 +195,14 @@ export class Game {
                 powerName: 'Brick Breaker',
                 power: ArkanoidPower,
                 powerDescription: 'On green peg hit, bucket drops and a paddle rises. Bounce the ball off the paddle - first bounce removes gravity for 10 seconds!'
+            },
+            {
+                id: 'i8',
+                name: 'The i8',
+                powerName: 'I Ate',
+                power: I8Power,
+                powerDescription: 'On peg hit, the ball "eats" the peg and grows larger. When it exceeds 3x size, it explodes, hitting nearby pegs and launching upward!'
             }
-            // {
-            //     id: 'i8',
-            //     name: 'The i8',
-            //     powerName: 'I Ate',
-            //     power: I8Power,
-            //     powerDescription: 'On peg hit, the ball "eats" the peg and grows larger. When it exceeds 3x size, it explodes, hitting nearby pegs and launching upward!'
-            // }
         ];
         
         this.activePower = null; // Currently active power system instance
@@ -1341,6 +1342,8 @@ export class Game {
         // Spawn the ball (unless power overrides)
         if (!this.activePower?.overrideSpawnBall) {
             this.spawnBall(spawnX, spawnY, spawnZ, originalVelocity, originalVelocity);
+            console.log('ball spawned and in play', this.activePower);
+            this.activePower.ballInPlay();
         }
     }
     
@@ -1900,7 +1903,7 @@ export class Game {
             return;
         }
         const ballMaterial = this.physicsWorld.getBallMaterial();
-        const ball = new Ball(this.scene, this.physicsWorld, { x, y, z }, velocity, ballMaterial, isYellow);
+        const ball = new Ball(this, this.scene, this.physicsWorld, { x, y, z }, velocity, ballMaterial, isYellow);
         // Store original velocity for lucky clover perk
         ball.originalVelocity = originalVelocity || velocity;
         // Track which pegs this ball has hit

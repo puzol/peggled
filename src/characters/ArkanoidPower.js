@@ -43,6 +43,10 @@ export class ArkanoidPower {
         return;
     }
 
+    ballInPlay(){
+        return;
+    }
+
     onPegHit(peg, ball){
         this.onPegBounce(ball);
     }

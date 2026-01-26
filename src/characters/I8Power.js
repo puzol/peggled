@@ -10,26 +10,26 @@ import * as CANNON from 'cannon-es';
 export class I8Power {
     constructor(game) {
         this.game = game;
-        this.ballOriginalScale = this.game.ballRadius;
+        this.ballOriginalScale = 0.085;
         this.ballTargetScale = this.ballOriginalScale;
         this.ballCurrentScale = this.ballOriginalScale;
         this.explosionRadius = 0.6;
         // this.specialPegs = ['purple', 'green', 'orange']; // Peg colors that don't contribute to size
-        this.specialPegIncrease = 0.035; // Smize increase for special pegs (orange, purple, green)
-        this.regularPegIncrease = 0.015; // Size increase for regular pegs
+        this.specialPegIncrease = 0.015; // Smize increase for special pegs (orange, purple, green)
+        this.regularPegIncrease = 0.0075; // Size increase for regular pegs
         this.powerActive = false;
         this.powerCount = 0;
         this.explosionYVelocity = 6;
         this.explosionXVelocity = 4;
-        this.ballGrowthRate = 0.75; // per second
-        this.ballScaleThreshold = this.ballOriginalScale * 2;
+        this.ballGrowthRate = 2; // per second
+        this.ballScaleThreshold = .15;
         this.ballIsInPlay = false;
         this.activeBall = null; // Track the active ball for size animation
         this.explosionTriggered = false; // Prevent multiple explosion triggers
     }
 
     onInit(){
-        return
+        this.game.ballRadius = this.ballOriginalScale;
     }
 
     onBallShot(){

@@ -2271,19 +2271,20 @@ export class Game {
                 // For rectangular: normalize corner collisions to use only one face
                 // For circular: handle large ball overlap to prevent physics confusion
                 // This must be done BEFORE clampBallVelocity to override physics response
+                // DISABLED: Testing behavior without normalizers
                 let collisionNormalized = false;
-                if (ball.body) {
-                    if (characteristic.shape === 'rect') {
-                        collisionNormalized = this.normalizeCornerCollisionCharacteristic(ball, characteristic);
-                    } else if (characteristic.shape === 'circle') {
-                        collisionNormalized = this.normalizeRoundCharacteristicCollision(ball, characteristic);
-                    }
-                }
+                // if (ball.body) {
+                //     if (characteristic.shape === 'rect') {
+                //         collisionNormalized = this.normalizeCornerCollisionCharacteristic(ball, characteristic);
+                //     } else if (characteristic.shape === 'circle') {
+                //         collisionNormalized = this.normalizeRoundCharacteristicCollision(ball, characteristic);
+                //     }
+                // }
                 
                 // Clamp velocity after characteristic collision (unless collision was normalized, which already handled velocity)
-                if (!collisionNormalized) {
+                // if (!collisionNormalized) {
                     this.clampBallVelocity(ball);
-                }
+                // }
             } catch (error) {
                 console.error('[Game] Error handling characteristic collision:', error);
             }
@@ -2296,19 +2297,20 @@ export class Game {
                 // For rectangular/dome: normalize corner collisions to use only one face
                 // For round: handle large ball overlap to prevent physics confusion
                 // This must be done BEFORE clampBallVelocity to override physics response
+                // DISABLED: Testing behavior without normalizers
                 let collisionNormalized = false;
-                if (ball.body) {
-                    if (peg.type === 'rect' || peg.type === 'dome') {
-                        collisionNormalized = this.normalizeCornerCollision(ball, peg);
-                    } else if (peg.type === 'round') {
-                        collisionNormalized = this.normalizeRoundPegCollision(ball, peg);
-                    }
-                }
+                // if (ball.body) {
+                //     if (peg.type === 'rect' || peg.type === 'dome') {
+                //         collisionNormalized = this.normalizeCornerCollision(ball, peg);
+                //     } else if (peg.type === 'round') {
+                //         collisionNormalized = this.normalizeRoundPegCollision(ball, peg);
+                //     }
+                // }
                 
                 // Clamp velocity after peg collision (unless collision was normalized, which already handled velocity)
-                if (!collisionNormalized) {
+                // if (!collisionNormalized) {
                     this.clampBallVelocity(ball);
-                }
+                // }
 
                 this.activePower.onPegHit(peg, ball);
                 

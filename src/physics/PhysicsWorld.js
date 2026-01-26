@@ -11,7 +11,7 @@ export class PhysicsWorld {
         // Increase solver iterations for better constraint resolution (helps with collision loss)
         this.world.solver.iterations = 20; // Increased from 10 (try 20 → 30 if needed)
         // Tighter tolerance for more accurate constraint solving
-        this.world.solver.tolerance = 1e-4; // Smaller tolerance can help with edge cases
+        this.world.solver.tolerance = 1e-5; // Smaller tolerance can help with edge cases
         
         // Fixed timestep accumulator for precise physics stepping
         // Using 120 Hz (1/120) for good balance between accuracy and performance

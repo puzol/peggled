@@ -13,9 +13,6 @@ import * as CANNON from 'cannon-es';
 export class MaddamPower {
     constructor(game) {
         this.game = game;
-        this.powerActive = false;
-        this.magnetsActive = false;
-        this.powerCount = 0; // Track the number of power turns
         this.magneticPegs = []; // Track which pegs have magnetism
         this.magnetTexture = null;
         this.textureLoader = new THREE.TextureLoader();
@@ -25,92 +22,47 @@ export class MaddamPower {
         this.magnetSoundHandle = null; // Handle for looping magnet sound
         this.magnetSoundTime = 0; // Time accumulator for volume oscillation
         this.magnetSoundTime = 0; // Time accumulator for volume oscillation
-        this.magneticPegDamping = 0.5; // Damping  factor for magnetic pegs
     }
 
-    /* 
-        * Standard Event list for all Power classes:
-    */
-
-    onInit(){
-        this.findMagneticPegs();
-    }
-
-    onBallShot(){
-
-        if(this.powerCount > 0){
-            this.powerActive = true;
-            this.powerCount--;
-            this.updatePowerTurnsUI();
-
-            if(this.magnetsActive == false){
-                this.magnetsActive = true;
-            }
-        } else {
-            this.powerActive = false;
-        }
-    }
-
-    ballInPlay(){
-        return;
-    }
-
-    onPegHit(peg, ball){
-        return;
-    }
-
+    /**
+     * Handle green peg hit - add magnetic power to queue
+     * Note: magneticActive flag is set in Game.js when green peg is hit
+     */
     onGreenPegHit(peg) {
-        this.powerCount += 2;
-        this.updatePowerTurnsUI();
+        // Power turns are already added in Game.js (1 turn per green peg)
+        // This method is called to match the pattern of other character powers
     }
 
-    onBallOutOfPlay(){
-        if(this.powerCount <= 0 && this.magnetsActive == true){
-            this.magnetsActive = false;
-            for (const peg of this.magneticPegs) {
+    /**
+     * Mark pegs as magnetic when power is activated
+     */
+    activateMagnetism() {
+        // First, remove magnets from pegs that should no longer have them (blue pegs)
+        // and clean up hit pegs
+        for (let i = this.magneticPegs.length - 1; i >= 0; i--) {
+            const peg = this.magneticPegs[i];
+            if (peg.hit || peg.isBlue || (!peg.isOrange && !peg.isGreen && !peg.isPurple)) {
+                // Remove magnet from this peg
                 if (peg.magnetMesh) {
                     this.game.scene.remove(peg.magnetMesh);
                     peg.magnetMesh.geometry.dispose();
                     peg.magnetMesh.material.dispose();
                     peg.magnetMesh = null;
                 }
+                this.magneticPegs.splice(i, 1);
             }
-            
-            this.magneticPegs = [];
         }
-        return;
-    }
-
-    onLevelComplete(){
-        return;
-    }
-
-    onReset(){
-        return;
-    }
-
-    update(){
-        return;
-    }
-
-    onAnimate(currentTime, deltaTime){
-        if(this.game.balls.length > 0 && this.magnetsActive == true){
-            this.updateMagnetism(this.game.balls[0], deltaTime / 1000);
-            this.updateMagnetVisuals(deltaTime / 1000);
-        }
-    }
-
-    updatePowerTurnsUI() {
         
-        if (this.game.powerTurnsElement) {
-            this.game.powerTurnsElement.textContent = `Power: ${this.powerCount}`;
+        // Load magnet texture if not already loaded
+        if (!this.magnetTexture) {
+            this.magnetTexture = this.textureLoader.load(`${import.meta.env.BASE_URL}assets/svg/pegMagnet.svg`);
         }
-    }
-
-    findMagneticPegs(){
-
+        
+        // Find all Orange, Green, and Purple pegs and attach magnet visuals
+        // Only Orange, Green, and Purple - NOT blue pegs
         for (const peg of this.game.pegs) {
             if (!peg.hit && (peg.isOrange || peg.isGreen || peg.isPurple) && !peg.isBlue) {
+                // Check if peg already has a magnet
                 const alreadyHasMagnet = this.magneticPegs.includes(peg);
                 
                 if (!alreadyHasMagnet) {
@@ -129,6 +81,9 @@ export class MaddamPower {
         }
     }
 
+    /**
+     * Create magnet visual for a peg
+     */
     createMagnetVisual(peg) {
         // Ensure texture is loaded before creating visual
         if (!this.magnetTexture) {
@@ -136,7 +91,7 @@ export class MaddamPower {
         }
         
         // Peg size is 0.09 (from Peg.js)
-        const pegSize = peg.actualSize;
+        const pegSize = 0.09;
         const magnetSize = pegSize * 3.0; // 3x the peg size (double the 1.5x)
         const magnetRadius = pegSize + 0.02; // Offset from peg center (peg size + small offset)
         
@@ -165,15 +120,101 @@ export class MaddamPower {
         peg.magnetCurrentRotation = Math.PI; // Track current rotation (start pointing down)
     }
 
-    updateMagnetism(ball, deltaTime) {
-        if (!ball || !this.magnetsActive || !this.magneticPegs || this.magneticPegs.length === 0) {
+    /**
+     * Update magnet visuals (called every frame)
+     */
+    updateMagnetVisuals(deltaTime) {
+        if (!this.magneticPegs || this.magneticPegs.length === 0) {
             return;
         }
+
+        // Check if there's an active magnetic ball in play
+        const hasActiveMagneticBall = this.game.balls.some(ball => ball && ball.isMagnetic);
+        
+        // Magnets should be visible if:
+        // 1. There's an active magnetic ball in play (during power shot), OR
+        // 2. Power is available AND no balls are active (shot ended, ready for next power shot)
+        // Don't show magnets just because powerTurnsRemaining > 0 - only show when actually using magnetism
+        const powerAvailable = this.game.magneticActive && this.game.powerTurnsRemaining > 0;
+        const shotEnded = this.game.balls.length === 0; // No active balls
+        const powerActive = powerAvailable && shotEnded; // Power available AND shot has ended (ready for next power shot)
+        const shouldShow = hasActiveMagneticBall || powerActive;
+        const targetScale = shouldShow ? 1.0 : 0.0;
+        const transitionSpeed = this.scaleTransitionSpeed * deltaTime;
+
+        // Ensure deltaTime is valid (prevent issues with 0 or negative values)
+        const validDeltaTime = deltaTime > 0 ? deltaTime : 0.016; // Default to ~60fps if invalid
+        const validTransitionSpeed = this.scaleTransitionSpeed * validDeltaTime;
+
+        // Update all magnet visuals
+        for (const peg of this.magneticPegs) {
+            if (!peg.body || !peg.magnetMesh) continue;
+            
+            // If peg is hit during magnetism, hide the magnet immediately
+            if (peg.hit) {
+                // Hide magnet when peg is hit (scale to 0)
+                if (peg.magnetCurrentScale === undefined) {
+                    peg.magnetCurrentScale = 0;
+                } else {
+                    // Smoothly hide magnet when peg is hit
+                    peg.magnetCurrentScale = Math.max(0, peg.magnetCurrentScale - validTransitionSpeed);
+                }
+                peg.magnetMesh.scale.set(
+                    peg.magnetCurrentScale,
+                    peg.magnetCurrentScale,
+                    peg.magnetCurrentScale
+                );
+                continue; // Stop updating this magnet after peg is hit
+            }
+
+            // Ensure magnetCurrentScale is initialized
+            if (peg.magnetCurrentScale === undefined) {
+                peg.magnetCurrentScale = 0;
+            }
+
+            // Smooth scale transition (0.3s)
+            if (peg.magnetCurrentScale < targetScale) {
+                peg.magnetCurrentScale = Math.min(targetScale, peg.magnetCurrentScale + validTransitionSpeed);
+            } else if (peg.magnetCurrentScale > targetScale) {
+                peg.magnetCurrentScale = Math.max(targetScale, peg.magnetCurrentScale - validTransitionSpeed);
+            }
+
+            peg.magnetMesh.scale.set(
+                peg.magnetCurrentScale,
+                peg.magnetCurrentScale,
+                peg.magnetCurrentScale
+            );
+
+            // Position and rotate magnet
+            const pegPos = peg.body.position;
+            
+            // Default position below peg when power active but ball not in range
+            if (shouldShow && !hasActiveMagneticBall) {
+                peg.magnetMesh.position.set(
+                    pegPos.x,
+                    pegPos.y - peg.magnetRadius,
+                    (pegPos.z || 0) - 0.01
+                );
+                // SVG points up originally, to point down we need 180° rotation
+                peg.magnetMesh.rotation.z = Math.PI; // Point down (180°)
+            }
+        }
+    }
+
+    /**
+     * Update magnetic effects on a ball and magnet visuals
+     * Called every frame for balls with magnetic power active
+     */
+    updateMagnetism(ball, deltaTime) {
+        if (!ball || !ball.isMagnetic || !this.magneticPegs || this.magneticPegs.length === 0) {
+            return;
+        }
+
         const ballPos = ball.body.position;
         const detectionRadius = 1.5; // Detection radius in points (increased from 1.2)
         
         // Use same visibility logic as updateMagnetVisuals - magnets should animate if visible
-        const hasActiveMagneticBall = this.magnetsActive;
+        const hasActiveMagneticBall = this.game.balls.some(b => b && b.isMagnetic);
         const powerActive = this.game.magneticActive && this.game.powerTurnsRemaining > 0;
         const shouldShow = powerActive || hasActiveMagneticBall;
         
@@ -308,7 +349,10 @@ export class MaddamPower {
         // Update magnet sound - play when at least one magnet is in range
         this.updateMagnetSound(hasMagnetInRange, deltaTime);
     }
-
+    
+    /**
+     * Update magnet sound - plays when magnets are in range with fade in, loop, crossfade, and volume oscillation
+     */
     updateMagnetSound(hasMagnetInRange, deltaTime) {
         if (!this.game.audioManager) return;
         
@@ -338,84 +382,9 @@ export class MaddamPower {
         }
     }
 
-    updateMagnetVisuals(deltaTime) {
-        if (!this.magneticPegs || this.magneticPegs.length === 0) {
-            return;
-        }
-
-        // Check if there's an active magnetic ball in play
-        const hasActiveMagneticBall = this.game.balls.some(ball => ball && this.magnetsActive);
-        
-        // Magnets should be visible if:
-        // 1. There's an active magnetic ball in play (during power shot), OR
-        // 2. Power is available AND no balls are active (shot ended, ready for next power shot)
-        // Don't show magnets just because powerTurnsRemaining > 0 - only show when actually using magnetism
-        const powerAvailable = this.game.magneticActive && this.game.powerTurnsRemaining > 0;
-        const shotEnded = this.game.balls.length === 0; // No active balls
-        const powerActive = powerAvailable && shotEnded; // Power available AND shot has ended (ready for next power shot)
-        const shouldShow = hasActiveMagneticBall || powerActive;
-        const targetScale = shouldShow ? 1.0 : 0.0;
-        const transitionSpeed = this.scaleTransitionSpeed * deltaTime;
-
-        // Ensure deltaTime is valid (prevent issues with 0 or negative values)
-        const validDeltaTime = deltaTime > 0 ? deltaTime : 0.016; // Default to ~60fps if invalid
-        const validTransitionSpeed = this.scaleTransitionSpeed * validDeltaTime;
-
-        // Update all magnet visuals
-        for (const peg of this.magneticPegs) {
-            if (!peg.body || !peg.magnetMesh) continue;
-            
-            // If peg is hit during magnetism, hide the magnet immediately
-            if (peg.hit) {
-                // Hide magnet when peg is hit (scale to 0)
-                if (peg.magnetCurrentScale === undefined) {
-                    peg.magnetCurrentScale = 0;
-                } else {
-                    // Smoothly hide magnet when peg is hit
-                    peg.magnetCurrentScale = Math.max(0, peg.magnetCurrentScale - validTransitionSpeed);
-                }
-                peg.magnetMesh.scale.set(
-                    peg.magnetCurrentScale,
-                    peg.magnetCurrentScale,
-                    peg.magnetCurrentScale
-                );
-                continue; // Stop updating this magnet after peg is hit
-            }
-
-            // Ensure magnetCurrentScale is initialized
-            if (peg.magnetCurrentScale === undefined) {
-                peg.magnetCurrentScale = 0;
-            }
-
-            // Smooth scale transition (0.3s)
-            if (peg.magnetCurrentScale < targetScale) {
-                peg.magnetCurrentScale = Math.min(targetScale, peg.magnetCurrentScale + validTransitionSpeed);
-            } else if (peg.magnetCurrentScale > targetScale) {
-                peg.magnetCurrentScale = Math.max(targetScale, peg.magnetCurrentScale - validTransitionSpeed);
-            }
-
-            peg.magnetMesh.scale.set(
-                peg.magnetCurrentScale,
-                peg.magnetCurrentScale,
-                peg.magnetCurrentScale
-            );
-
-            // Position and rotate magnet
-            const pegPos = peg.body.position;
-            
-            // Default position below peg when power active but ball not in range
-            if (shouldShow && !hasActiveMagneticBall) {
-                peg.magnetMesh.position.set(
-                    pegPos.x,
-                    pegPos.y - peg.magnetRadius,
-                    (pegPos.z || 0) - 0.01
-                );
-                // SVG points up originally, to point down we need 180° rotation
-                peg.magnetMesh.rotation.z = Math.PI; // Point down (180°)
-            }
-        }
-    }
-
+    /**
+     * Smoothly interpolate rotation angle, handling wrap-around at 2π
+     */
     smoothRotation(current, target, speed) {
         // Normalize angles to [0, 2π)
         const normalizeAngle = (angle) => {
@@ -438,9 +407,23 @@ export class MaddamPower {
         }
         return normalizeAngle(current + Math.sign(diff) * speed);
     }
-    
+
+    /**
+     * Reset power state and remove magnet visuals
+     */
     reset() {
-        return;
+        // Remove magnet visuals from all magnetic pegs
+        for (const peg of this.magneticPegs) {
+            if (peg.magnetMesh) {
+                this.game.scene.remove(peg.magnetMesh);
+                peg.magnetMesh.geometry.dispose();
+                peg.magnetMesh.material.dispose();
+                peg.magnetMesh = null;
+            }
+        }
+        
+        this.magneticPegs = [];
+        this.game.magneticActive = false;
     }
 }
 

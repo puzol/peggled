@@ -9,7 +9,6 @@ import { EmojiEffect } from '../utils/EmojiEffect.js';
 export class PeterPower {
     constructor(game) {
         this.game = game;
-        // Track which pegs have already triggered lucky bounce for current 3-hit cycle
         this.luckyBounceTriggeredPegs = new Set();
         this.powerActive = false;
         this.powerCount = 0;
@@ -30,15 +29,13 @@ export class PeterPower {
     }
 
     onBallShot(){
-        if(this.powerCount > 0){
-            this.powerActive = true;
-        } else {
-            this.powerActive = false;
-        }
 
         if(this.powerCount > 0){
+            this.powerActive = true;
             this.powerCount--;
             this.updatePowerTurnsUI();
+        } else {
+            this.powerActive = false;
         }
     }
 
@@ -193,13 +190,8 @@ export class PeterPower {
         // Add to temporary purple pegs array
         this.temporaryPurplePegs.push(newPurplePeg);
     }
-
-    /**
-     * Reset power state
-     */
+    
     reset() {
-        // Power state is managed by Game.js
-        // Clear lucky bounce tracking for new ball
         return;
     }
 }

@@ -182,13 +182,13 @@ export class Game {
             //     power: MikeyPower,
             //     powerDescription: 'On green peg hit, grants a power move. On shot, shoots 2 balls: white ball and ethereal mirror ball that reflects along X-axis.'
             // },
-            // {
-            //     id: 'maddam',
-            //     name: 'Maddam Magna Thicke',
-            //     powerName: 'Magnetic Pegs',
-            //     power: MaddamPower,
-            //     powerDescription: 'On green peg hit, grants a power for the next shot. Orange, Green, and Purple pegs gain magnetism, pulling the white ball within 1.5 points radius.'
-            // },
+            {
+                id: 'maddam',
+                name: 'Maddam Magna Thicke',
+                powerName: 'Magnetic Pegs',
+                power: MaddamPower,
+                powerDescription: 'On green peg hit, grants a power for the next shot. Orange, Green, and Purple pegs gain magnetism, pulling the white ball within 1.5 points radius.'
+            },
             {
                 id: 'arkanoid',
                 name: 'Arkanoid',

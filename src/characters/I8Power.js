@@ -102,7 +102,7 @@ export class I8Power {
     }
 
     onGreenPegHit(peg) {
-        this.powerCount += 2;
+        this.powerCount += 1;
         this.updatePowerTurnsUI();
     }
 

@@ -68,7 +68,7 @@ export class MaddamPower {
     }
 
     onGreenPegHit(peg) {
-        this.powerCount += 2;
+        this.powerCount += 1;
         this.updatePowerTurnsUI();
     }
 

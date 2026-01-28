@@ -26,6 +26,9 @@ export class MaddamPower {
         this.magnetSoundTime = 0; // Time accumulator for volume oscillation
         this.magnetSoundTime = 0; // Time accumulator for volume oscillation
         this.magneticPegDamping = 0.5; // Damping  factor for magnetic pegs
+        this.baseDetectionRadius = 1.6; // Base detection radius
+        this.outerCircleOneBase = 1.35;
+        this.outerCircleTwoBase = 0.95;
     }
 
     /* 
@@ -33,7 +36,7 @@ export class MaddamPower {
     */
 
     onInit(){
-        this.findMagneticPegs();
+        return;
     }
 
     onBallShot(){
@@ -42,12 +45,17 @@ export class MaddamPower {
             this.powerActive = true;
             this.powerCount--;
             this.updatePowerTurnsUI();
+            console.log(this.magneticPegs);
 
             if(this.magnetsActive == false){
                 this.magnetsActive = true;
             }
         } else {
             this.powerActive = false;
+        }
+
+        if(this.magnetsActive == true){
+            this.findMagneticPegs();
         }
     }
 
@@ -65,6 +73,7 @@ export class MaddamPower {
     }
 
     onBallOutOfPlay(){
+
         if(this.powerCount <= 0 && this.magnetsActive == true){
             this.magnetsActive = false;
             for (const peg of this.magneticPegs) {
@@ -78,7 +87,18 @@ export class MaddamPower {
             
             this.magneticPegs = [];
         }
-        return;
+        
+        if(this.magneticPegs.length > 0){
+            for (const peg of this.magneticPegs) {
+                if (peg.magnetMesh) {
+                    this.game.scene.remove(peg.magnetMesh);
+                    peg.magnetMesh.geometry.dispose();
+                    peg.magnetMesh.material.dispose();
+                    peg.magnetMesh = null;
+                }
+            }
+            this.magneticPegs = [];
+        }
     }
 
     onLevelComplete(){
@@ -170,7 +190,7 @@ export class MaddamPower {
             return;
         }
         const ballPos = ball.body.position;
-        const detectionRadius = 1.5; // Detection radius in points (increased from 1.2)
+        const detectionRadius = this.baseDetectionRadius; // Detection radius in points (increased from 1.2)
         
         // Use same visibility logic as updateMagnetVisuals - magnets should animate if visible
         const hasActiveMagneticBall = this.magnetsActive;
@@ -191,7 +211,8 @@ export class MaddamPower {
             const dx = pegPos.x - ballPos.x;
             const dy = pegPos.y - ballPos.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
-            const inRange = distance <= detectionRadius && distance > 0.01;
+            const sizeMultiplier = peg.actualSize * 10;
+            const inRange = distance <= detectionRadius * sizeMultiplier && distance > 0.01;
 
             // Update magnet position and rotation based on ball location
             // Use shouldShow instead of powerActive so magnets animate as long as they're visible
@@ -258,21 +279,21 @@ export class MaddamPower {
                 // At radius 1.25: force = 10
                 // At radius 1.5: force = 5
                 let pullForce;
-                if (distance <= 0.85) {
+                if (distance <= 0.85 * sizeMultiplier) {
                     // Stage 1: Maximum pull at close range
                     pullForce = 15;
-                } else if (distance <= 1.25) {
+                } else if (distance <= 1.25 * sizeMultiplier) {
                     // Stage 2: Interpolate between 15 and 10
                     const t = (distance - 0.85) / (1.25 - 0.85); // 0 to 1
                     pullForce = 15 + t * (10 - 15); // 15 down to 10
                 } else {
                     // Stage 3: Interpolate between 10 and 5
-                    const t = (distance - 1.25) / (1.5 - 1.25); // 0 to 1
+                    const t = (distance - 1.25 * sizeMultiplier) / (1.5 * sizeMultiplier - 1.25 * sizeMultiplier); // 0 to 1
                     pullForce = 10 + t * (5 - 10); // 10 down to 5
                 }
                 
-                totalPullX += dirX * pullForce;
-                totalPullY += dirY * pullForce;
+                totalPullX += dirX * pullForce * sizeMultiplier;
+                totalPullY += dirY * pullForce * sizeMultiplier;
                 pullCount++;
                 hasMagneticPull = true;
             }

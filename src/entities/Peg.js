@@ -248,7 +248,7 @@ export class Peg {
             // Dome peg: rounded profile + blunt top, flat bottom, extruded in Z
             const height = this.actualSize * 2;
             const width  = height * 2;      // 2:1 aspect
-            const depth  = 0.15;
+            const depth  = 1.0;
             const z      = depth / 2;
 
             const halfWidth  = width / 2;
@@ -459,9 +459,9 @@ export class Peg {
                 this.game.activePower.onGreenPegHit(this);
             }
 
-            if(this.isPurple) {
-                this.game.assignPurplePeg();
-            }
+            // if(this.isPurple) {
+            //     this.game.assignPurplePeg();
+            // }
 
             if (this.size === 'small') {
                 const pegIndex = this.game.pegs.indexOf(this);

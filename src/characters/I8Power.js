@@ -13,7 +13,7 @@ export class I8Power {
         this.ballOriginalScale = 0.1;
         this.ballTargetScale = this.ballOriginalScale;
         this.ballCurrentScale = this.ballOriginalScale;
-        this.explosionRadius = 0.6;
+        this.explosionRadius = 0.5;
         // this.specialPegs = ['purple', 'green', 'orange']; // Peg colors that don't contribute to size
         this.specialPegIncrease = 0.04; // Smize increase for special pegs (orange, purple, green)
         this.regularPegIncrease = 0.0125; // Size increase for regular pegs

@@ -27,8 +27,6 @@ export class MaddamPower {
         this.magnetSoundTime = 0; // Time accumulator for volume oscillation
         this.magneticPegDamping = 0.5; // Damping  factor for magnetic pegs
         this.baseDetectionRadius = 1.6; // Base detection radius
-        this.outerCircleOneBase = 1.35;
-        this.outerCircleTwoBase = 0.95;
     }
 
     /* 
@@ -45,7 +43,6 @@ export class MaddamPower {
             this.powerActive = true;
             this.powerCount--;
             this.updatePowerTurnsUI();
-            console.log(this.magneticPegs);
 
             if(this.magnetsActive == false){
                 this.magnetsActive = true;
@@ -318,7 +315,7 @@ export class MaddamPower {
 
             // Reduce gravity to 5 while pull force is active
             // Normal gravity is -9.82, reduce to 5 means we counteract 9.82 - 5 = 4.82
-            const gravityCounteract = 4.5 * deltaTime;
+            const gravityCounteract = 5.5 * deltaTime;
             ball.body.velocity.set(
                 ball.body.velocity.x,
                 ball.body.velocity.y + gravityCounteract,

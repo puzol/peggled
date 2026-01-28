@@ -6,7 +6,6 @@ export class Ball {
         this.game = game;
         this.scene = scene;
         this.physicsWorldWrapper = physicsWorldWrapper;
-        this.isYellow = isYellow;
         this.ballRadius = this.game.ballRadius;
 
         // Visual representation (Three.js)

@@ -5,8 +5,8 @@ export class PhysicsWorld {
         this.world = new CANNON.World({
             gravity: new CANNON.Vec3(0, -9.82, 0) // Standard gravity
         });
-        this.bounceRegular = 0.8;
-        this.bounceStrong = 1.1;
+        this.bounceRegular = 0.85;
+        this.bounceStrong = 1.15;
         this.bounceWeak = 0.3;
         this.bounceSticky = 0.0;
         

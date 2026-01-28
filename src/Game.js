@@ -111,6 +111,10 @@ export class Game {
         // Seed input is in character selector, not game container
         this.seedInput = document.querySelector('#seed-input');
         
+        this.currentMiliseconds = Date.now();
+        this.oneOrTwo = this.currentMiliseconds % 2;
+        this.tracks = ['track1', 'track2'];
+        
         // Set up play again button click handler
         if (this.playAgainButton) {
             this.playAgainButton.addEventListener('click', () => {
@@ -526,7 +530,7 @@ export class Game {
      */
     async loadMusicTracksOnce() {
         if (this.audioManager) {
-            await this.audioManager.loadMusicTracks('track2', `${import.meta.env.BASE_URL}sounds/`);
+            await this.audioManager.loadMusicTracks('track' + (this.oneOrTwo + 1), `${import.meta.env.BASE_URL}sounds/`);
         }
     }
 

@@ -245,90 +245,127 @@ export class Peg {
             const shape = new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, 0.1));
             this.body.addShape(shape);
         } else if (this.type === 'dome') {
-            // Dome peg: Use ConvexPolyhedron with 6 vertices (hexagon) for better collision
-            // Height equals round peg diameter (2 * actualSize) to match round peg heights
-            const height = this.actualSize * 2; // Match round peg diameter (height)
-            const width = height * 2; // 2:1 aspect ratio (width:height)
-            const depth = 0.15; // Slightly thicker depth for better collision reliability (was 0.1)
-            const z = depth / 2; // Front face z position
-            
-            // Create 6 vertices forming a symmetrical hexagon dome:
-            // - Bottom: flat (2 vertices at same Y)
-            // - Left side: flat vertical (2 vertices at same X)
-            // - Top: flat horizontal (2 vertices at same Y, for flat top face)
-            // - 2 corner faces connect top to sides
-            const vertices = [];
-            
-            // Define symmetrical dimensions
-            const halfWidth = width / 2;
+            // Dome peg: rounded profile + blunt top, flat bottom, extruded in Z
+            const height = this.actualSize * 2;
+            const width  = height * 2;      // 2:1 aspect
+            const depth  = 0.15;
+            const z      = depth / 2;
+
+            const halfWidth  = width / 2;
             const halfHeight = height / 2;
-            const topY = halfHeight; // Flat top Y position
-            const cornerY = halfHeight * 0.25; // Where corner transition starts (lowered to make sides shorter)
-            const bottomY = -halfHeight; // Flat bottom Y position
-            
-            // Vertex order (CCW when viewed from front):
-            // 0: Bottom left
-            vertices.push(new CANNON.Vec3(-halfWidth, bottomY, z));
-            // 1: Bottom right
-            vertices.push(new CANNON.Vec3(halfWidth, bottomY, z));
-            // 2: Right side top (vertical side continues to corner)
-            vertices.push(new CANNON.Vec3(halfWidth, cornerY, z));
-            // 3: Top right (flat top face starts)
-            vertices.push(new CANNON.Vec3(halfWidth * 0.6, topY, z));
-            // 4: Top left (flat top face ends)
-            vertices.push(new CANNON.Vec3(-halfWidth * 0.6, topY, z));
-            // 5: Left side top (vertical side continues to corner)
-            vertices.push(new CANNON.Vec3(-halfWidth, cornerY, z));
-            
-            const frontVertexCount = vertices.length; // 6 vertices
-            
-            // Create back face vertices (z = -depth/2) - same XY coordinates
+
+            const topY    =  halfHeight;
+            const bottomY = -halfHeight;
+
+            // Controls
+            const topFlatFrac = 0.28;             // bluntness of top (0.2–0.35 feels good)
+            const cornerYFrac = 0.25;             // where the curve starts (0.15–0.35)
+            const arcSegments = 6;                // higher = smoother (4–10)
+
+            // Derived
+            const topFlatHalf = halfWidth * topFlatFrac;
+            const cornerY     = bottomY + height * (0.5 + cornerYFrac * 0.5); 
+            // Alternative, if you prefer your existing definition:
+            // const cornerY = halfHeight * cornerYFrac;
+
+            // ---- Build 2D profile (front face) in CCW order ----
+            // Order: bottom-left -> bottom-right -> right vertical -> (arc up) -> top flat -> (arc down) -> left vertical
+            const profile = [];
+
+            // Bottom (flat)
+            profile.push([-halfWidth, bottomY]);
+            profile.push([ halfWidth, bottomY]);
+
+            // Right vertical up to cornerY (keeps “flat-face” behavior for most of the side)
+            profile.push([ halfWidth, cornerY]);
+
+            // Rounded arc from right vertical to top flat corner
+            // Use a quarter-ellipse arc that ends at (topFlatHalf, topY)
+            {
+            const rx = halfWidth - topFlatHalf; // horizontal radius of the rounded shoulder
+            const ry = topY - cornerY;          // vertical radius
+
+            // Add intermediate arc points (exclude endpoints to avoid duplicates)
+            for (let i = 1; i < arcSegments; i++) {
+                const a = (i / arcSegments) * (Math.PI / 2); // 0..pi/2
+                const x = topFlatHalf + rx * Math.cos(a);    // goes halfWidth -> topFlatHalf
+                const y = cornerY     + ry * Math.sin(a);    // goes cornerY  -> topY
+                profile.push([x, y]);
+            }
+            }
+
+            // Top flat (blunt)
+            profile.push([ topFlatHalf, topY]);
+            profile.push([-topFlatHalf, topY]);
+
+            // Left arc down from top flat to left vertical at cornerY
+            {
+            const rx = halfWidth - topFlatHalf;
+            const ry = topY - cornerY;
+
+            for (let i = arcSegments - 1; i >= 1; i--) {
+                const a = (i / arcSegments) * (Math.PI / 2); // pi/2..0
+                const x = -(topFlatHalf + rx * Math.cos(a));
+                const y =  cornerY     + ry * Math.sin(a);
+                profile.push([x, y]);
+            }
+            }
+
+            // Left vertical down to cornerY
+            profile.push([-halfWidth, cornerY]);
+
+            // ---- Convert profile to 3D vertices (extruded) ----
+            const vertices = [];
+            for (const [x, y] of profile) vertices.push(new CANNON.Vec3(x, y,  z));
+            const frontVertexCount = vertices.length;
+
             const backVertexStart = frontVertexCount;
             for (let i = 0; i < frontVertexCount; i++) {
-                const frontVert = vertices[i];
-                vertices.push(new CANNON.Vec3(frontVert.x, frontVert.y, -z));
+            const v = vertices[i];
+            vertices.push(new CANNON.Vec3(v.x, v.y, -z));
             }
-            
-            // Define faces - vertices must be CCW when viewed from outside
-            // For ConvexPolyhedron: face normals point outward (use right-hand rule)
+
+            // ---- Faces ----
             const faces = [];
-            
-            // Front face (z = +depth/2): 6 vertices in CCW order when viewed from +Z (outside)
-            // Order: 0 (bottom-left) -> 1 (bottom-right) -> 2 (right-side-top) -> 3 (top-right) -> 4 (top-left) -> 5 (left-side-top)
-            faces.push([0, 1, 2, 3, 4, 5]);
-            
-            // Back face (z = -depth/2): 6 vertices in CCW order when viewed from -Z (outside)
-            // Reverse order for back face (CCW from -Z side)
-            faces.push([backVertexStart + 0, backVertexStart + 5, backVertexStart + 4, backVertexStart + 3, backVertexStart + 2, backVertexStart + 1]);
-            
-            // Side faces: For each edge, create a quad face
-            // The quad must be CCW when viewed from outside (perpendicular to the edge)
-            // For an edge going from vertex i to next, the outside is to the left of the direction
-            // Try: i -> backI -> backNext -> next (this forms a CCW quad from outside)
+
+            // Front face (CCW when viewed from +Z)
+            faces.push([...Array(frontVertexCount).keys()]);
+
+            // Back face (CCW when viewed from -Z) => reverse
+            faces.push(
+            [...Array(frontVertexCount).keys()]
+                .map(i => backVertexStart + i)
+                .reverse()
+            );
+
+            // Side faces (quads)
             for (let i = 0; i < frontVertexCount; i++) {
-                const next = (i + 1) % frontVertexCount;
-                faces.push([
-                    i,                      // Current front
-                    backVertexStart + i,    // Current back
-                    backVertexStart + next, // Next back
-                    next                    // Next front
-                ]);
+            const next = (i + 1) % frontVertexCount;
+            faces.push([
+                i,
+                backVertexStart + i,
+                backVertexStart + next,
+                next
+            ]);
             }
-            
-            // Create ConvexPolyhedron shape
+
             try {
-                const convexShape = new CANNON.ConvexPolyhedron({ vertices, faces });
-                this.body.addShape(convexShape);
-                
-                // Create wireframe visualization for debugging
-                this.createConvexPolyhedronWireframe(vertices, faces);
+            const convexShape = new CANNON.ConvexPolyhedron({ vertices, faces });
+
+            // These help after programmatic convex creation
+            convexShape.updateBoundingSphereRadius?.();
+            this.body.addShape(convexShape);
+            this.body.updateBoundingRadius?.();
+            this.body.aabbNeedsUpdate = true;
+
+            this.createConvexPolyhedronWireframe(vertices, faces);
             } catch (error) {
-                console.error('Error creating ConvexPolyhedron for dome peg:', error);
-                // Fallback to simple box to allow level to load
-                console.warn('Falling back to box shape for dome peg');
-                const boxShape = new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, depth / 2));
-                this.body.addShape(boxShape);
+            console.error('Error creating ConvexPolyhedron for dome peg:', error);
+            console.warn('Falling back to box shape for dome peg');
+            const boxShape = new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, depth / 2));
+            this.body.addShape(boxShape);
             }
+
         } else {
             // Default to sphere
             const shape = new CANNON.Sphere(this.actualSize);
@@ -367,7 +404,7 @@ export class Peg {
     }
 
     // Called when ball hits the peg
-    onHit() {
+    onHit(ball) {
         if (!this.hit) {
             this.hit = true;
             // Change color to indicate hit
@@ -406,6 +443,41 @@ export class Peg {
                 // Fallback for non-shader materials
                 this.mesh.material.color.setHex(newColor);
             }
+
+            // Play peg hit sound
+            if (this.game.audioManager) {
+                this.game.audioManager.playPegHit();
+            }
+            
+            // Check for orange peg (goal progress) - only on first hit by ANY ball
+            if (this.isOrange) {
+                this.game.goalProgress++;
+                this.game.updateGoalUI();
+                this.game.updateOrangePegMultiplier();
+            }
+            if (this.isGreen) {
+                this.game.activePower.onGreenPegHit(this);
+            }
+
+            if(this.isPurple) {
+                this.game.assignPurplePeg();
+            }
+
+            if (this.size === 'small') {
+                const pegIndex = this.game.pegs.indexOf(this);
+                if (pegIndex !== -1) {
+                    this.remove();
+                    this.game.pegs.splice(pegIndex, 1);
+                    // Remove from ball's hitPegs array if present
+                    const ballPegIndex = ball.hitPegs.indexOf(this);
+                    if (ballPegIndex !== -1) {
+                        ball.hitPegs.splice(ballPegIndex, 1);
+                    }
+                    // Skip rest of peg hit logic since peg is removed
+                    return;
+                }
+            }
+
             this.game.activePower.onPegHit(this, null);
         } 
     }

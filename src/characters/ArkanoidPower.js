@@ -78,7 +78,6 @@ export class ArkanoidPower {
     }
 
     onBallOutOfPlay(){
-        console.log('ball out of play');
         return;
     }
 

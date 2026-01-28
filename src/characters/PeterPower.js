@@ -17,6 +17,8 @@ export class PeterPower {
         this.luckyBounceTarget = 3;
         this.emojiEffect = null;
         this.temporaryPurplePegs = [];
+        this.luckyRange = 1;
+        this.tempPurpleValue = 3000;
     }
 
     /* 
@@ -45,13 +47,14 @@ export class PeterPower {
     }
 
     onPegHit(peg, ball){
+        if(peg.hit == true) return; // Ignore already hit pegs
         this.luckyBounceCount++;
 
         if(this.powerActive && peg.hit == false) {
             if(this.luckyBounceCount % this.luckyBounceTarget == 0){
                 this.emojiEffect.showEmoji('🍀', { x: peg.body.position.x, y: peg.body.position.y, z: peg.body.position.z || 0 }, 0.5);
                 this.luckyBounce(ball);
-                this.generateTemporaryPurplePeg();
+                this.generateTemporaryPurplePeg(peg, ball);
             }
         }
     }
@@ -144,15 +147,19 @@ export class PeterPower {
     /**
      * Generate a temporary purple peg (only lasts for current turn)
      */
-    generateTemporaryPurplePeg() {
+    generateTemporaryPurplePeg(peg, ball) {
 
-        // Find all blue pegs (not orange, not green, not hit, not already purple)
-        const bluePegs = this.game.pegs.filter(peg => 
-            !peg.isOrange && 
-            !peg.isGreen && 
-            !peg.hit &&
-            !peg.isPurple
-        );
+        const ballPos = ball.body.position;
+
+        const bluePegs = this.game.pegs.filter(peg => {
+            if (peg.hit) return false; // Skip already hit pegs
+            if (peg.isOrange || peg.isGreen || peg.isPurple) return false; // Skip non-blue pegs
+            const pegPos = peg.body.position;
+            const dx = pegPos.x - ballPos.x;
+            const dy = pegPos.y - ballPos.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            return distance <= this.luckyRange;
+        });
         
         if (bluePegs.length === 0) {
             // No blue pegs available
@@ -163,7 +170,7 @@ export class PeterPower {
         const randomIndex = this.game.rng.randomInt(0, bluePegs.length);
         const newPurplePeg = bluePegs[randomIndex];
         newPurplePeg.isPurple = true;
-        newPurplePeg.pointValue = 1500; // Purple peg value
+        newPurplePeg.pointValue = this.tempPurpleValue; // Purple peg value
         
         // Change color to purple (lighter purple for default state) - update shader uniforms
         newPurplePeg.color = 0xba55d3; // Update stored color

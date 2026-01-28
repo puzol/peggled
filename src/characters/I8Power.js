@@ -10,19 +10,19 @@ import * as CANNON from 'cannon-es';
 export class I8Power {
     constructor(game) {
         this.game = game;
-        this.ballOriginalScale = 0.085;
+        this.ballOriginalScale = 0.1;
         this.ballTargetScale = this.ballOriginalScale;
         this.ballCurrentScale = this.ballOriginalScale;
         this.explosionRadius = 0.6;
         // this.specialPegs = ['purple', 'green', 'orange']; // Peg colors that don't contribute to size
-        this.specialPegIncrease = 0.015; // Smize increase for special pegs (orange, purple, green)
-        this.regularPegIncrease = 0.0075; // Size increase for regular pegs
+        this.specialPegIncrease = 0.02; // Smize increase for special pegs (orange, purple, green)
+        this.regularPegIncrease = 0.0085; // Size increase for regular pegs
         this.powerActive = false;
         this.powerCount = 0;
         this.explosionYVelocity = 6;
         this.explosionXVelocity = 4;
         this.ballGrowthRate = 2; // per second
-        this.ballScaleThreshold = .15;
+        this.ballScaleThreshold = .2;
         this.ballIsInPlay = false;
         this.activeBall = null; // Track the active ball for size animation
         this.explosionTriggered = false; // Prevent multiple explosion triggers
@@ -72,11 +72,11 @@ export class I8Power {
             this.ballCurrentScale = initialRadius;
             this.ballTargetScale = initialRadius;
         }
-        console.log('Ball in play', this.ballIsInPlay, this.powerActive);
     }
 
     onPegHit(peg, ball){
         if(this.powerActive && peg.hit == false) {
+            peg.size = 'small'; // Treat as small peg for scoring
             // Ensure we have the active ball reference
             if (ball && !this.activeBall) {
                 this.activeBall = ball;
@@ -93,7 +93,6 @@ export class I8Power {
             }
             // Round target scale to 3 decimals
             this.ballTargetScale = Math.round(this.ballTargetScale * 1000) / 1000;
-            console.log('Peg hit, target scale:', this.ballTargetScale, 'current:', this.ballCurrentScale);
             
             // Check if target scale exceeds threshold (trigger explosion immediately)
             if (this.ballTargetScale >= this.ballScaleThreshold && !this.explosionTriggered) {
@@ -108,7 +107,6 @@ export class I8Power {
     }
 
     onBallOutOfPlay() {
-        console.log('ball out of play');
         this.ballIsInPlay = false;
         const resetScale = Math.round(this.ballOriginalScale * 1000) / 1000;
         this.ballTargetScale = resetScale;
@@ -233,7 +231,7 @@ export class I8Power {
         
         // Brief pause for tactile feedback and to let physics catch up
         // This helps prevent collision detection issues after size reset
-        const pauseDuration = 0.05; // 50ms pause
+        const pauseDuration = 0.03; // 50ms pause
         this.game.gamePaused = true;
         
         // Find all pegs within explosion radius
@@ -250,7 +248,8 @@ export class I8Power {
         pegsToHit.forEach(peg => {
             // Call onHit() to trigger peg effects (scoring, sounds, etc.)
             if (!peg.hit) {
-                peg.onHit();
+                // peg.size = 'small'; // Treat as small peg for scoring
+                peg.onHit(ball);
             }
             
             // Remove peg from game
@@ -302,8 +301,6 @@ export class I8Power {
                 this.explosionTriggered = false;
             }
         }, 100);
-        
-        console.log('Explosion triggered!', pegsToHit.length, 'pegs removed');
     }
     
     updatePowerTurnsUI() {

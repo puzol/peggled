@@ -1342,7 +1342,6 @@ export class Game {
         // Spawn the ball (unless power overrides)
         if (!this.activePower?.overrideSpawnBall) {
             this.spawnBall(spawnX, spawnY, spawnZ, originalVelocity, originalVelocity);
-            console.log('ball spawned and in play', this.activePower);
             this.activePower.ballInPlay();
         }
     }
@@ -2322,45 +2321,7 @@ export class Game {
             // The onHit() method itself checks if already hit, so it's safe to call
             if (isNewHit) {
                 try {
-                    peg.onHit();
-
-                    // Play peg hit sound
-                    if (this.audioManager) {
-                        this.audioManager.playPegHit();
-                    }
-                    
-                    // Check for orange peg (goal progress) - only on first hit by ANY ball
-                    if (peg.isOrange) {
-                        this.goalProgress++;
-                        this.updateGoalUI();
-                        this.updateOrangePegMultiplier();
-                    }
-                    if (peg.isGreen) {
-                        this.activePower.onGreenPegHit(peg);
-                    }
-
-                    // if(peg.isPurple) {
-                    //     this.assignPurplePeg();
-                    // }
-                    
-                    // Small pegs (small round, small rectangular, etc.) are removed immediately after collision
-                    // This applies to all small pegs regardless of type, but AFTER special peg actions
-                    // Also applies to ALL pegs when I8 power is active (all pegs behave like small pegs)
-                    const isI8PowerActive = this.activePower && this.activePower.powerActive && this.selectedCharacter?.id === 'i8';
-                    if (peg.size === 'small' || isI8PowerActive) {
-                        const pegIndex = this.pegs.indexOf(peg);
-                        if (pegIndex !== -1) {
-                            peg.remove();
-                            this.pegs.splice(pegIndex, 1);
-                            // Remove from ball's hitPegs array if present
-                            const ballPegIndex = ball.hitPegs.indexOf(peg);
-                            if (ballPegIndex !== -1) {
-                                ball.hitPegs.splice(ballPegIndex, 1);
-                            }
-                            // Skip rest of peg hit logic since peg is removed
-                            return;
-                        }
-                    }
+                    peg.onHit(ball);
                 } catch (error) {
                     // ERROR in peg.onHit()
                 }

@@ -5,6 +5,10 @@ export class PhysicsWorld {
         this.world = new CANNON.World({
             gravity: new CANNON.Vec3(0, -9.82, 0) // Standard gravity
         });
+        this.bounceRegular = 0.8;
+        this.bounceStrong = 1.1;
+        this.bounceWeak = 0.3;
+        this.bounceSticky = 0.0;
         
         // Set up solver for better stability and collision detection
         this.world.broadphase = new CANNON.NaiveBroadphase();
@@ -52,7 +56,7 @@ export class PhysicsWorld {
             this.wallMaterial,
             {
                 friction: 0, // No friction for ball
-                restitution: 0.875 // Increased bounce by 25%
+                restitution: this.bounceRegular // Increased bounce by 25%
             }
         );
         this.world.addContactMaterial(ballWallContact);
@@ -64,7 +68,7 @@ export class PhysicsWorld {
             this.pegMaterial,
             {
                 friction: 0, // No friction for ball
-                restitution: 0.875 // Increased bounce by 25%
+                restitution: this.bounceRegular // Increased bounce by 25%
             }
         );
         this.world.addContactMaterial(ballPegContact);
@@ -76,7 +80,7 @@ export class PhysicsWorld {
             this.characteristicNormalMaterial,
             {
                 friction: 0, // No friction for ball
-                restitution: 0.875 // Normal bounce
+                restitution: this.bounceRegular // Normal bounce
             }
         );
         this.world.addContactMaterial(ballCharacteristicNormalContact);
@@ -87,7 +91,7 @@ export class PhysicsWorld {
             this.characteristicDampenedMaterial,
             {
                 friction: 0, // No friction for ball
-                restitution: 0.3 // Dampened bounce
+                restitution: this.bounceWeak // Dampened bounce
             }
         );
         this.world.addContactMaterial(ballCharacteristicDampenedContact);
@@ -98,7 +102,7 @@ export class PhysicsWorld {
             this.characteristicNoBounceMaterial,
             {
                 friction: 0, // No friction for ball
-                restitution: 0.0 // No bounce
+                restitution: this.bounceSticky // No bounce
             }
         );
         this.world.addContactMaterial(ballCharacteristicNoBounceContact);
@@ -109,7 +113,7 @@ export class PhysicsWorld {
             this.characteristicSuperBouncyMaterial,
             {
                 friction: 0, // No friction for ball
-                restitution: 1.2 // Super bouncy (can exceed 1.0 for energy gain)
+                restitution: this.bounceStrong // Super bouncy (can exceed 1.0 for energy gain)
             }
         );
         this.world.addContactMaterial(ballCharacteristicSuperBouncyContact);
@@ -121,7 +125,7 @@ export class PhysicsWorld {
             this.pegNormalMaterial,
             {
                 friction: 0, // No friction for ball
-                restitution: 0.875 // Normal bounce
+                restitution: this.bounceRegular // Normal bounce
             }
         );
         this.world.addContactMaterial(ballPegNormalContact);
@@ -132,7 +136,7 @@ export class PhysicsWorld {
             this.pegDampenedMaterial,
             {
                 friction: 0, // No friction for ball
-                restitution: 0.3 // Dampened bounce
+                restitution: this.bounceWeak // Dampened bounce
             }
         );
         this.world.addContactMaterial(ballPegDampenedContact);
@@ -143,7 +147,7 @@ export class PhysicsWorld {
             this.pegNoBounceMaterial,
             {
                 friction: 0, // No friction for ball
-                restitution: 0.0 // No bounce
+                restitution: this.bounceSticky // No bounce
             }
         );
         this.world.addContactMaterial(ballPegNoBounceContact);
@@ -154,7 +158,7 @@ export class PhysicsWorld {
             this.pegSuperBouncyMaterial,
             {
                 friction: 0, // No friction for ball
-                restitution: 1.2 // Super bouncy (can exceed 1.0 for energy gain)
+                restitution: this.bounceStrong // Super bouncy (can exceed 1.0 for energy gain)
             }
         );
         this.world.addContactMaterial(ballPegSuperBouncyContact);

@@ -7,14 +7,14 @@ export class Ball {
         this.scene = scene;
         this.physicsWorldWrapper = physicsWorldWrapper;
         this.isYellow = isYellow;
-        this.ballRadius = this.game.ballRadius; 
-        
+        this.ballRadius = this.game.ballRadius;
+
         // Visual representation (Three.js)
         this.createMesh(position);
-        
+
         // Physics body (Cannon.js)
         this.createPhysicsBody(position, velocity, ballMaterial);
-        
+
         // Link the visual to the physics body
         this.syncVisualToPhysics();
     }
@@ -23,70 +23,106 @@ export class Ball {
         // Yellow for bonus balls (spread shot, rapid shot)
         const geometry = new THREE.CircleGeometry(this.ballRadius, 16);
         const material = new THREE.MeshBasicMaterial({
-            color: this.isYellow ? 0xffff00 : 0xffffff // Yellow or white
+            color: this.isYellow ? 0xffff00 : 0xffffff
         });
-        
+
         this.mesh = new THREE.Mesh(geometry, material);
-        this.mesh.position.set(position.x, position.y, position.z);
-        // CircleGeometry is already in XY plane, perfect for 2D view
-        this.mesh.renderOrder = 0; // Ensure ball renders after rocket (rocket has renderOrder -1)
-        
+        this.mesh.position.set(position.x, position.y, 0); // force 2D plane
+        this.mesh.renderOrder = 0;
+
         this.scene.add(this.mesh);
     }
 
     createPhysicsBody(position, velocity, ballMaterial) {
         const shape = new CANNON.Sphere(this.ballRadius);
+
+        // Prefer a shared world material (so ContactMaterial rules apply consistently)
+        const resolvedMaterial =
+            ballMaterial ||
+            (typeof this.physicsWorldWrapper?.getBallMaterial === 'function'
+                ? this.physicsWorldWrapper.getBallMaterial()
+                : null) ||
+            new CANNON.Material('ball');
+
         this.body = new CANNON.Body({
             mass: 1,
-            shape: shape,
-            material: ballMaterial || new CANNON.Material({
-                friction: 0, // No friction for ball
-                restitution: 0.7 // Bounciness
-            }),
-            // Enable continuous collision detection to prevent tunneling through objects
-            // This is important for fast-moving objects like the ball
+            shape,
+            material: resolvedMaterial,
             type: CANNON.Body.DYNAMIC
         });
-        
-        // Set collision response mode to ensure collisions are detected
-        // This helps prevent the ball from passing through pegs
+
+        // Ensure collisions are processed
         this.body.collisionResponse = true;
-        
-        // Enable CCD (Continuous Collision Detection) for fast-moving objects
-        // This helps detect collisions even when the ball moves fast
-        this.body.allowSleep = false; // Keep body active
-        this.body.updateMassProperties();
-        
-        this.body.position.set(position.x, position.y, position.z);
-        
-        // Apply initial velocity if provided
+
+        // Keep body active (you already want arcade-like constant motion)
+        this.body.allowSleep = false;
+
+        // ---- Force strict 2D behaviour ----
+        // Prevent any Z drift and any angular response from contact manifolds.
+        this.body.linearFactor.set(1, 1, 0);   // allow X/Y only
+        this.body.angularFactor.set(0, 0, 0);  // no rotation (2D circle)
+        // -----------------------------------
+
+        // Set starting position (force z=0 plane)
+        this.body.position.set(position.x, position.y, 0);
+
+        // Apply initial velocity if provided (force z=0)
         if (velocity) {
-            this.body.velocity.set(velocity.x, velocity.y, velocity.z);
+            this.body.velocity.set(velocity.x, velocity.y, 0);
+        } else {
+            this.body.velocity.set(0, 0, 0);
         }
-        
+
+        // Make sure mass/inertia are consistent
+        this.body.updateMassProperties();
+
+        // Add to world
         this.physicsWorldWrapper.addBody(this.body);
     }
 
     syncVisualToPhysics() {
-        // Sync position for 2D (no rotation needed for circles)
+        // Keep strictly in 2D plane
         this.mesh.position.set(
             this.body.position.x,
             this.body.position.y,
-            this.body.position.z
+            0
         );
     }
 
     update() {
+        // Safety: if something ever goes invalid, prevent “ghost forever”
+        // (rare, but this is a cheap tripwire)
+        const p = this.body.position;
+        const v = this.body.velocity;
+        const q = this.body.quaternion;
+
+        const allFinite =
+            Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z) &&
+            Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z) &&
+            Number.isFinite(q.x) && Number.isFinite(q.y) && Number.isFinite(q.z) && Number.isFinite(q.w);
+
+        if (!allFinite) {
+            // Minimal recovery: snap back to plane and stop Z motion
+            // (We avoid touching other systems outside this class.)
+            this.body.position.z = 0;
+            this.body.velocity.z = 0;
+            this.body.angularVelocity.set(0, 0, 0);
+        }
+
+        // Enforce 2D plane every frame (guards against numeric noise)
+        this.body.position.z = 0;
+        this.body.velocity.z = 0;
+
         this.syncVisualToPhysics();
     }
 
     remove() {
         // Remove from scene
         this.scene.remove(this.mesh);
-        
+
         // Remove from physics world
         this.physicsWorldWrapper.removeBody(this.body);
-        
+
         // Clean up geometry and material
         this.mesh.geometry.dispose();
         this.mesh.material.dispose();
@@ -98,4 +134,3 @@ export class Ball {
         return this.body.position.y < threshold;
     }
 }
-

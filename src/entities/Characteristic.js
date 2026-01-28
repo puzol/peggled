@@ -42,7 +42,6 @@ export class Characteristic {
             }
             // Ensure radius is valid (not NaN, not zero, not negative)
             const validRadius = Math.max(0.1, radius);
-            console.log('[Characteristic] Creating circle mesh with radius:', validRadius, 'from size:', size);
             geometry = new THREE.CircleGeometry(validRadius, 32);
         } else {
             // Rectangular
@@ -87,7 +86,6 @@ export class Characteristic {
             }
             // Ensure radius is valid (not NaN, not zero, not negative)
             const validRadius = Math.max(0.1, radius);
-            console.log('[Characteristic] Creating circle physics body with radius:', validRadius, 'from size:', size);
             physicsShape = new CANNON.Sphere(validRadius);
         } else {
             // Rectangular - use Box

@@ -27,8 +27,6 @@ export class MaddamPower {
         this.magnetSoundTime = 0; // Time accumulator for volume oscillation
         this.magneticPegDamping = 0.5; // Damping  factor for magnetic pegs
         this.baseDetectionRadius = 1.6; // Base detection radius
-        this.outerCircleOneBase = 1.35;
-        this.outerCircleTwoBase = 0.95;
     }
 
     /* 
@@ -45,7 +43,6 @@ export class MaddamPower {
             this.powerActive = true;
             this.powerCount--;
             this.updatePowerTurnsUI();
-            console.log(this.magneticPegs);
 
             if(this.magnetsActive == false){
                 this.magnetsActive = true;

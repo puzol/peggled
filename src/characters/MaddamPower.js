@@ -318,7 +318,7 @@ export class MaddamPower {
 
             // Reduce gravity to 5 while pull force is active
             // Normal gravity is -9.82, reduce to 5 means we counteract 9.82 - 5 = 4.82
-            const gravityCounteract = 4.5 * deltaTime;
+            const gravityCounteract = 7.82 * deltaTime;
             ball.body.velocity.set(
                 ball.body.velocity.x,
                 ball.body.velocity.y + gravityCounteract,
